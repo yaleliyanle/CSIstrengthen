@@ -1,0 +1,86 @@
+# 多因子开发配置：训练历史用于滚动估计，净值只观察验证区间。
+# 比较并冻结方法后，再用命令行显式打开样本外测试区间。
+
+[data]
+engine = "duckdb"
+batch_size = 16
+duckdb_threads = 4
+market = "a share/A股行情数据.parquet"
+valuation = "a share/A股估值数据.parquet"
+industry = "a share/A股行业分类.parquet"
+index_members = "a share/指数成分股.parquet"
+factor_root = "factor"
+
+[research]
+start = "2014-10-31"
+end = "2020-10-31"              # 默认只到验证集末日
+benchmark = "000852.SH"
+membership_lag = 0
+
+# factor_file 才是实际使用的冻结清单；这里仅是配置校验所需的备用因子。
+[[factors]]
+source = "基本面因子"
+name = "ep_qr_sud"
+
+[preprocess]
+winsor_lower = 0.01
+winsor_upper = 0.99
+standardize = "zscore"
+neutralize_industry = true
+neutralize_size = true
+missing = "renormalize"
+min_factor_count = 1
+
+[multifactor]
+method = "max_ic_ir"             # equal / max_ic_ir / max_ic / 模块:函数
+factor_file = "configs/csi1000_selected_32.csv"
+estimation_universe = "all_a"    # 在全A上估计 IC 和风险矩阵
+lookback_periods = 12
+group_by_source = true            # 类别内优化，类别间等权
+exposure_shrinkage = 0.1          # max_ic 的暴露相关矩阵收缩强度
+eigenvalue_floor = 1e-8
+optimizer_tolerance = 1e-9
+optimizer_max_iterations = 1000
+backtest_start = "2019-05-01"    # 默认只观察验证区间净值
+
+[schedule]
+method = "monthly"                # weekly / monthly
+
+[portfolio]
+method = "benchmark_tilt"         # 可替换为 top_n_equal / top_n_benchmark / 模块:函数
+empty_signal = "error"
+top_n = 100
+tilt = 0.35
+score_clip = 3.0
+max_weight = 0.02
+
+[execution]
+price = "next_open"
+initial_cash = 100000000.0
+record_positions = true
+allow_same_close = false
+
+[rules]
+profile = "custom"
+block_suspended = true
+block_limit = false
+use_eod_limit_for_open = false
+t_plus_one = true
+
+[costs]
+commission_rate = 0.001            # 买入、卖出各扣 0.1%
+minimum_commission = 0.0
+stamp_tax = "none"                 # 千一已作为统一单边费率，不再重复收税
+transfer_fee = "none"
+
+[analytics]
+annual_days = 252
+risk_free_rate = 0.0
+
+[charts]
+enabled = true
+width = 1100
+height = 500
+
+[output]
+directory = "outputs/csi1000_multifactor"

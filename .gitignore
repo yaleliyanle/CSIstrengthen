@@ -1,0 +1,37 @@
+.DS_Store
+.venv/
+__pycache__/
+*.py[cod]
+.pytest_cache/
+.ruff_cache/
+outputs/
+cache/
+tmp/
+dist/
+.agents/
+.codex/
+
+# Local research datasets and derived tables.
+a share/
+factor/
+*.parquet
+*.csv
+*.xlsx
+
+# Local handoff copies and report workspaces.
+中证指数增强阶段性交付_20260724/
+券商研报_多因子指数增强/
+
+# Local research/document exports and generated media.
+*.pdf
+*.docx
+*.pptx
+*.zip
+*.whl
+*.png
+*.jpg
+*.jpeg
+*.webp
+*.inspect.ndjson
+*.log
+*.swp

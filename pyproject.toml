@@ -1,0 +1,31 @@
+[build-system]
+requires = ["hatchling>=1.25"]
+build-backend = "hatchling.build"
+
+[project]
+name = "ashare-lab"
+version = "0.1.0"
+description = "简洁、可插拔的 A 股多因子研究与指数增强回测框架"
+readme = "README.md"
+requires-python = ">=3.11"
+dependencies = [
+  "duckdb>=1.0",
+  "fastexcel>=0.20.2",
+  "numpy>=1.26",
+  "polars>=1.20",
+  "pyarrow>=15",
+  "scipy>=1.11",
+]
+
+[project.scripts]
+ashare-lab = "ashare_lab.cli:main"
+
+[dependency-groups]
+dev = ["pytest>=8.0"]
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/ashare_lab"]
+
+[tool.pytest.ini_options]
+addopts = "-q"
+testpaths = ["tests"]

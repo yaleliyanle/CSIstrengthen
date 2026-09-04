@@ -1,0 +1,86 @@
+# 中证1000周频实验：最大化 IC_IR + 得分前20%等权。
+# 与月频主配置分开保存，便于直接比较且不覆盖原结果。
+
+[data]
+engine = "duckdb"
+batch_size = 16
+duckdb_threads = 4
+market = "a share/A股行情数据.parquet"
+valuation = "a share/A股估值数据.parquet"
+industry = "a share/A股行业分类.parquet"
+index_members = "a share/指数成分股.parquet"
+factor_root = "factor"
+
+[research]
+start = "2014-10-31"
+end = "2026-05-27"
+benchmark = "000852.SH"
+membership_lag = 0
+
+[[factors]]
+source = "基本面因子"
+name = "ep_qr_sud"
+
+[preprocess]
+winsor_lower = 0.01
+winsor_upper = 0.99
+standardize = "zscore"
+neutralize_industry = true
+neutralize_size = true
+missing = "renormalize"
+min_factor_count = 1
+
+[multifactor]
+method = "max_ic_ir"
+factor_file = "configs/csi1000_selected_32.csv"
+estimation_universe = "all_a"
+# 周频下52个已结束持有期约等于一年，对应月频配置的12期。
+lookback_periods = 52
+group_by_source = true
+exposure_shrinkage = 0.1
+eigenvalue_floor = 1e-8
+optimizer_tolerance = 1e-9
+optimizer_max_iterations = 1000
+backtest_start = "2020-11-01"
+
+[schedule]
+method = "weekly"
+
+[portfolio]
+method = "ashare_lab.example_plugins:top_twenty_percent"
+empty_signal = "error"
+top_n = 100
+tilt = 0.35
+score_clip = 3.0
+max_weight = 0.02
+
+[execution]
+price = "next_open"
+initial_cash = 100000000.0
+record_positions = true
+allow_same_close = false
+
+[rules]
+profile = "custom"
+block_suspended = true
+block_limit = false
+use_eod_limit_for_open = false
+t_plus_one = true
+
+[costs]
+commission_rate = 0.001
+minimum_commission = 0.0
+stamp_tax = "none"
+transfer_fee = "none"
+
+[analytics]
+annual_days = 252
+risk_free_rate = 0.0
+
+[charts]
+enabled = true
+width = 1100
+height = 500
+
+[output]
+directory = "outputs/csi1000_weekly52_top20_max_ic_ir"
