@@ -1,4 +1,4 @@
-"""因子筛选：只决定保留谁，不负责清洗、合成或回测。"""
+"""Factor selection chooses factors; cleaning, combination, and backtesting are handled elsewhere."""
 
 from __future__ import annotations
 
@@ -22,7 +22,7 @@ class SelectionResult:
 
 @dataclass(frozen=True)
 class LassoModel:
-    """训练期拟合结果；验证期只能应用，不能重新估计。"""
+    """Training fit; apply it to validation data without refitting."""
 
     columns: tuple[str, ...]
     coefficients: np.ndarray
@@ -42,26 +42,26 @@ def select_factors(
     return_column: str,
     cfg: Mapping[str, Any] | Any,
 ) -> SelectionResult:
-    """按配置筛选已完成中性化和标准化的因子。"""
+    """Select neutralized and standardized factors using the configuration."""
 
     options = _section(cfg)
     method = str(options.get("method", "ic"))
     columns = list(dict.fromkeys(factor_columns))
     _require_columns(panel, ["date", return_column, *columns])
     if not columns:
-        raise ValueError("至少需要一个待筛选因子")
+        raise ValueError("At least one candidate factor is required")
 
     if ":" in method:
         table = import_callable(method)(panel, columns, return_column, cfg)
         if not isinstance(table, pl.DataFrame):
-            raise TypeError("自定义筛选方法必须返回 Polars DataFrame")
+            raise TypeError("Custom selection methods must return a Polars DataFrame")
         _require_columns(table, ["factor", "selected"])
     elif method == "ic":
         table = _ic_selection(panel, columns, return_column, options)
     elif method == "lasso":
         table = _lasso_selection(panel, columns, return_column, options)
     else:
-        raise ValueError(f"未知因子筛选方法: {method!r}")
+        raise ValueError(f"Unknown factor selection method: {method!r}")
 
     table = table.with_columns(pl.col("selected").cast(pl.Boolean, strict=True))
     selected = tuple(
@@ -121,7 +121,7 @@ def _lasso_selection(
     return_column: str,
     options: Mapping[str, Any],
 ) -> pl.DataFrame:
-    """标准化后用坐标下降求解 Lasso；缺失因子按截面中性值 0 填充。"""
+    """Solve standardized Lasso by coordinate descent; fill missing factors with neutral value zero."""
 
     model = fit_lasso_model(panel, columns, return_column, options)
     return lasso_table(model)
@@ -132,7 +132,7 @@ def factor_statistics(
     columns: Sequence[str],
     return_column: str,
 ) -> pl.DataFrame:
-    """返回未应用门槛的单因子 IC、覆盖率与方向统计。"""
+    """Return single-factor IC, coverage, and direction statistics without thresholds."""
 
     return _ic_selection(
         panel,
@@ -148,7 +148,7 @@ def fit_lasso_model(
     return_column: str,
     options: Mapping[str, Any],
 ) -> LassoModel:
-    """只用传入的训练集拟合 Lasso，并保存验证期所需的缩放参数。"""
+    """Fit Lasso on the supplied training data only and retain scaling parameters for validation."""
 
     columns = list(columns)
     _require_columns(panel, ["date", return_column, *columns])
@@ -159,7 +159,7 @@ def fit_lasso_model(
     coefficient_tolerance = float(options.get("coefficient_tolerance", 1e-10))
     top_n = int(options.get("top_n", 0))
     if alpha < 0 or tolerance <= 0 or max_iter < 1 or top_n < 0:
-        raise ValueError("Lasso 要求 alpha>=0、tolerance>0、max_iter>=1、top_n>=0")
+        raise ValueError("Lasso requires alpha>=0, tolerance>0, max_iter>=1, and top_n>=0")
 
     clean = panel.with_columns(
         (pl.col(return_column) - pl.col(return_column).mean().over("date")).alias(
@@ -167,7 +167,7 @@ def fit_lasso_model(
         )
     ).filter(pl.col("__target").is_finite())
     if clean.is_empty():
-        raise ValueError("筛选区间没有可用的前瞻收益")
+        raise ValueError("No available forward returns in the selection interval")
 
     x = clean.select(columns).to_numpy().astype(float, copy=False)
     y = clean.get_column("__target").to_numpy().astype(float, copy=False)
@@ -181,7 +181,7 @@ def fit_lasso_model(
     y = y - y.mean()
     y_scale = y.std()
     if not np.isfinite(y_scale) or y_scale <= 1e-14:
-        raise ValueError("前瞻收益没有截面变化，无法运行 Lasso")
+        raise ValueError("Forward returns have no cross-sectional variation; cannot run Lasso")
     y = y / y_scale
 
     coefficients, iterations, converged = _coordinate_descent(
@@ -224,7 +224,7 @@ def lasso_table(model: LassoModel) -> pl.DataFrame:
 
 
 def apply_lasso(panel: pl.DataFrame, model: LassoModel) -> pl.DataFrame:
-    """用训练期模型计算验证期分数，不接触验证期收益。"""
+    """Score validation data using the training model without accessing validation returns."""
 
     _require_columns(panel, ["date", "stock", *model.columns])
     x = panel.select(model.columns).to_numpy().astype(float, copy=False)
@@ -243,7 +243,7 @@ def score_statistics(
     score_column: str,
     return_column: str,
 ) -> dict[str, float | int]:
-    """计算组合分数的逐期 Rank IC 摘要。"""
+    """Summarize the combined score's RankIC across periods."""
 
     pairs = _finite_pairs(panel, score_column, return_column).with_columns(
         pl.col(score_column).rank("average").over("date").alias("__score_rank"),
@@ -262,7 +262,7 @@ def _coordinate_descent(
     max_iter: int,
     tolerance: float,
 ) -> tuple[np.ndarray, int, bool]:
-    """求解 1/(2n)||y-Xb||² + alpha*|b|。"""
+    """Solve 1/(2n)||y-Xb||² + alpha*|b|."""
 
     n, features = x.shape
     beta = np.zeros(features)
@@ -325,13 +325,13 @@ def _section(cfg: Mapping[str, Any] | Any) -> Mapping[str, Any]:
     if isinstance(cfg, Mapping):
         value = cfg.get("selection")
         return value if isinstance(value, Mapping) else cfg
-    raise TypeError("cfg 应为 Config 或 dict")
+    raise TypeError("cfg must be Config or dict")
 
 
 def _require_columns(frame: pl.DataFrame, columns: Sequence[str]) -> None:
     missing = [column for column in columns if column not in frame.columns]
     if missing:
-        raise ValueError(f"缺少列: {', '.join(missing)}")
+        raise ValueError(f"Missing columns: {', '.join(missing)}")
 
 
 __all__ = [

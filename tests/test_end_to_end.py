@@ -56,7 +56,7 @@ def _toy_project(tmp_path: Path) -> dict[str, str]:
                     "s_info_windcode": stock,
                     "trade_dt": day,
                     "s_val_mv": 100.0,
-                    # 让标准规则拒绝最高分股票；极简规则仍可成交。
+                    # Standard rules reject the top-scoring stock; minimal rules still permit the trade.
                     "up_down_limit_status": 1 if stock == "A.SZ" else 0,
                 }
             )
@@ -131,7 +131,7 @@ def test_weekly_and_monthly_schedules_work_end_to_end(tmp_path):
     assert result.summary["run"]["rebalance"] == "weekly"
     assert result.summary["run"]["rules_profile"] == "minimal"
     assert result.strategy.trades.height > 0
-    # 指数权重只在快照变化时复位，不会被策略的周频调仓反复重置。
+    # Reset index weights only when snapshots change, not on every weekly strategy rebalance.
     assert result.benchmark.trades.height == 3
     assert (result.output_directory / "summary.json").exists()
 
@@ -139,7 +139,7 @@ def test_weekly_and_monthly_schedules_work_end_to_end(tmp_path):
 def test_partial_week_end_is_not_mistaken_for_week_end(tmp_path):
     config = _config(tmp_path, rebalance="weekly", rules="minimal")
     raw = config.to_dict()
-    raw["research"]["end"] = "2024-01-24"  # 周三
+    raw["research"]["end"] = "2024-01-24"  # Wednesday
     panel = build_research_panel(Config.from_dict(raw))
 
     assert panel.signal_dates[-1] == date(2024, 1, 19)
@@ -170,7 +170,7 @@ def test_empty_signal_policy_is_explicit():
         {"date": [first, second], "stock": ["A", "B"], "score": [1.0, None]}
     )
 
-    with pytest.raises(ValueError, match="没有有效分数"):
+    with pytest.raises(ValueError, match="No valid scores"):
         _apply_empty_signal_policy(targets, panel, [first, second], "error")
     held = _apply_empty_signal_policy(targets, panel, [first, second], "hold")
     cash = _apply_empty_signal_policy(targets, panel, [first, second], "cash")

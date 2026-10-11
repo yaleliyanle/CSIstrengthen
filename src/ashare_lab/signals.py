@@ -1,8 +1,8 @@
-"""因子滞后、截面预处理与合成。
+"""Factor lags, cross-sectional preprocessing, and combination.
 
-约定很少：键名固定为 ``date`` / ``stock``，处理后的因子名为
-``factor__<alias>``。新增合成方法时也可以直接在配置中写
-``your_module:your_function``。
+Keys are ``date`` / ``stock`` and processed factors are named
+``factor__<alias>``. Configure custom combination methods as
+``your_module:your_function``.
 """
 
 from __future__ import annotations
@@ -22,27 +22,27 @@ KEYS = ["date", "stock"]
 def apply_availability_lags(
     daily_factors: pl.DataFrame, specs: Sequence[FactorSpec]
 ) -> pl.DataFrame:
-    """按股票把原始因子向后移动其可用滞后日数。
+    """Delay raw factors by their availability lag for each stock.
 
-    这里的“一日”是一只股票在输入中的一行。因此必须先对**完整连续的
-    日频因子表**调用本函数，再筛选周度/月度调仓日；若先筛调仓日，lag=1
-    就会错误地变成滞后一整个调仓周期。
+    One day corresponds to one input row per stock. Apply this function to a **complete,
+    continuous daily factor table** before selecting weekly/monthly rebalance dates; otherwise lag=1
+    would incorrectly shift by an entire rebalance period.
 
-    原始因子列会被覆盖，行数不变。
+    Overwrite raw factor columns while preserving the row count.
     """
     _require_columns(daily_factors, KEYS)
     names = [_spec_value(spec, "name") for spec in specs]
     if len(names) != len(set(names)):
-        raise ValueError("apply_availability_lags 不支持重复的因子 name")
+        raise ValueError("apply_availability_lags does not support duplicate factor names")
     _require_columns(daily_factors, names)
 
-    frame = daily_factors.sort(KEYS[::-1])  # stock，再 date
+    frame = daily_factors.sort(KEYS[::-1])  # stock, then date
     expressions = []
     for spec in specs:
         name = str(_spec_value(spec, "name"))
         lag = int(_spec_value(spec, "availability_lag", 0))
         if lag < 0:
-            raise ValueError(f"因子 {name!r} 的 availability_lag 不能为负数")
+            raise ValueError(f"Factor {name!r}: availability_lag must be nonnegative")
         expressions.append(pl.col(name).shift(lag).over("stock").alias(name))
     return frame.with_columns(expressions)
 
@@ -52,18 +52,18 @@ def preprocess_factors(
     specs: Sequence[FactorSpec],
     cfg: Mapping[str, Any] | Any,
 ) -> pl.DataFrame:
-    """逐日清洗并标准化因子，保留输入行与输入列。
+    """Clean and standardize factors daily, preserving input rows and columns.
 
-    本函数假定 :func:`apply_availability_lags` 已在完整日频表上执行，不会
-    再次 shift。处理顺序是：Inf→null、分位数缩尾、行业去均值、对
-    ``log(market_cap)`` 做截面线性回归取残差、zscore/rank、应用方向。
+    Assume :func:`apply_availability_lags` has run on the complete daily table; do not
+    shift again. Process Inf -> null, quantile winsorization, industry demeaning,
+    cross-sectional regression residuals against ``log(market_cap)``, zscore/rank, then direction.
     """
     options = _section(cfg, "preprocess")
     custom_method = options.get("method")
     if custom_method:
         result = import_callable(str(custom_method))(panel, specs, cfg)
         if not isinstance(result, pl.DataFrame):
-            raise TypeError("自定义 preprocess 方法必须返回 Polars DataFrame")
+            raise TypeError("Custom preprocess methods must return a Polars DataFrame")
         expected = [
             f"factor__{_spec_value(spec, 'output_name', _spec_value(spec, 'name'))}"
             for spec in specs
@@ -74,11 +74,11 @@ def preprocess_factors(
     lower = float(options.get("winsor_lower", 0.01))
     upper = float(options.get("winsor_upper", 0.99))
     if not 0 <= lower < upper <= 1:
-        raise ValueError("winsor_lower / winsor_upper 应满足 0 <= lower < upper <= 1")
+        raise ValueError("winsor_lower / winsor_upper must satisfy 0 <= lower < upper <= 1")
 
     standardize = str(options.get("standardize", "zscore"))
     if standardize not in {"zscore", "rank", "none"}:
-        raise ValueError("standardize 只能是 zscore、rank 或 none")
+        raise ValueError("standardize must be zscore, rank, or none")
 
     industry_col = str(options.get("industry_column", "industry"))
     size_col = str(options.get("market_cap_column", "market_cap"))
@@ -97,11 +97,11 @@ def preprocess_factors(
         direction = float(_spec_value(spec, "direction", 1.0))
         output = f"factor__{alias}"
         if output in aliases:
-            raise ValueError(f"重复的因子输出列: {output}")
+            raise ValueError(f"Duplicate factor output column: {output}")
         aliases.add(output)
         _require_columns(frame, [raw])
 
-        # 用输出列承接每一步，原始列始终保留，便于排查数据。
+        # Carry each step through the output column and retain raw columns for debugging.
         value = pl.col(raw).cast(pl.Float64, strict=False)
         frame = frame.with_columns(
             pl.when(value.is_finite()).then(value).otherwise(None).alias(output)
@@ -134,11 +134,11 @@ def combine_scores(
     specs: Sequence[FactorSpec],
     cfg: Mapping[str, Any] | Any,
 ) -> pl.DataFrame:
-    """合成为 ``score``，不因某个因子缺失而删除股票。
+    """Combine factors into ``score`` without dropping stocks because one factor is missing.
 
-    内置 ``weighted``、``equal``、``rank_average``。自定义方法写成
-    ``module:function``，函数接收 ``(panel, specs, cfg)``，并返回带
-    ``score`` 的 DataFrame、名为 score 的 Series，或一个 Polars Expr。
+    Built-ins: ``weighted``, ``equal``, ``rank_average``. Configure custom methods as
+    ``module:function``; the function receives ``(panel, specs, cfg)`` and returns a
+    DataFrame with ``score``, a Series named score, or a Polars Expr.
     """
     combine = _section(cfg, "combine")
     preprocess = _section(cfg, "preprocess")
@@ -146,7 +146,7 @@ def combine_scores(
     if ":" in method:
         return _custom_score(import_callable(method)(panel, specs, cfg), panel)
     if method not in {"weighted", "equal", "rank_average"}:
-        raise ValueError(f"未知因子合成方法: {method!r}")
+        raise ValueError(f"Unknown factor combination method: {method!r}")
 
     columns = [
         f"factor__{_spec_value(spec, 'output_name', _spec_value(spec, 'name'))}"
@@ -155,16 +155,16 @@ def combine_scores(
     _require_columns(panel, ["date", *columns])
     weights = [float(_spec_value(spec, "weight", 1.0)) for spec in specs]
     if method == "weighted" and not any(weights):
-        raise ValueError("weighted 合成至少需要一个非零权重")
+        raise ValueError("weighted combination requires at least one nonzero weight")
 
     missing = str(combine.get("missing", preprocess.get("missing", "renormalize")))
     min_count = int(
         combine.get("min_factor_count", preprocess.get("min_factor_count", 1))
     )
     if missing not in {"renormalize", "require_all", "min_count"}:
-        raise ValueError("missing 只能是 renormalize、require_all 或 min_count")
+        raise ValueError("missing must be renormalize, require_all, or min_count")
     if min_count < 1:
-        raise ValueError("min_factor_count 必须大于 0")
+        raise ValueError("min_factor_count must be positive")
 
     frame = panel
     temporary_columns: list[str] = []
@@ -230,7 +230,7 @@ def _neutralize_size(
     size_col: str,
     group_col: str | None = None,
 ) -> pl.DataFrame:
-    """逐日取市值残差；有行业时使用 FWL 联合中性化。"""
+    """Compute daily size residuals; use joint FWL neutralization when industry data is available."""
     names = _temporary_names(frame, 7)
     size, paired, paired_size, x_center, s_center, numerator, denominator = names
     raw_size = pl.col(size_col).cast(pl.Float64, strict=False)
@@ -300,16 +300,16 @@ def _custom_score(result: Any, panel: pl.DataFrame) -> pl.DataFrame:
         return panel.with_columns(result.alias("score"))
     if isinstance(result, pl.Series):
         if len(result) != panel.height:
-            raise ValueError("自定义 score Series 长度与 panel 不一致")
+            raise ValueError("Custom score Series length does not match panel")
         return panel.with_columns(result.alias("score"))
     if isinstance(result, pl.DataFrame):
         if "score" not in result.columns:
-            raise ValueError("自定义合成 DataFrame 必须包含 score")
+            raise ValueError("Custom combination DataFrame must contain score")
         if result.height == panel.height and not all(key in result.columns for key in KEYS):
             return panel.with_columns(result["score"])
         _require_columns(result, [*KEYS, "score"])
         return panel.join(result.select(*KEYS, "score"), on=KEYS, how="left")
-    raise TypeError("自定义合成方法应返回 DataFrame、Series 或 Expr")
+    raise TypeError("Custom combination methods must return DataFrame, Series, or Expr")
 
 
 def _section(cfg: Mapping[str, Any] | Any, name: str) -> Mapping[str, Any]:
@@ -320,7 +320,7 @@ def _section(cfg: Mapping[str, Any] | Any, name: str) -> Mapping[str, Any]:
     if isinstance(cfg, Mapping):
         value = cfg.get(name)
         return value if isinstance(value, Mapping) else cfg
-    raise TypeError("cfg 应为 Config 或 dict")
+    raise TypeError("cfg must be Config or dict")
 
 
 def _spec_value(spec: FactorSpec | Mapping[str, Any], name: str, default: Any = None) -> Any:
@@ -336,7 +336,7 @@ def _spec_value(spec: FactorSpec | Mapping[str, Any], name: str, default: Any = 
 def _require_columns(frame: pl.DataFrame, columns: Sequence[str]) -> None:
     missing = [column for column in columns if column not in frame.columns]
     if missing:
-        raise ValueError(f"缺少列: {', '.join(missing)}")
+        raise ValueError(f"Missing columns: {', '.join(missing)}")
 
 
 def _temporary_names(frame: pl.DataFrame, count: int) -> list[str]:

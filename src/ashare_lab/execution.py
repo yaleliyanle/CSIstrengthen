@@ -1,12 +1,12 @@
-"""A 股撮合的简洁公共入口。
+"""Concise public entry point for A-share execution.
 
-日常使用通常只需要 :func:`run_execution`。如果要改某个环节：
+Most users only need :func:`run_execution`. To modify individual components:
 
-- 费用与历史费率：``costs.py``
-- 配置、输入校验、信号到成交日映射：``execution_inputs.py``
-- 先卖后买、交易限制与每日记账：``execution_engine.py``
+- Costs and historical rates: ``costs.py``
+- Configuration, input validation, and signal-to-execution date mapping: ``execution_inputs.py``
+- Sell-before-buy execution, trading restrictions, and daily accounting: ``execution_engine.py``
 
-本门面继续导出旧版本的全部公共名称，因此原有导入方式无需修改。
+This facade still exports all public names from earlier versions, preserving existing imports.
 """
 
 from __future__ import annotations
@@ -61,15 +61,15 @@ def run_execution(
     tradability_rule: TradabilityRule | Any | str | None = None,
     lot_rounder: LotRounder | None = None,
 ) -> BacktestResult:
-    """执行目标权重，返回净值、成交、持仓和拒单四张表。
+    """Execute target weights and return NAV, trades, positions, and rejections.
 
-    ``targets`` 中的日期有两种口径：
+    ``targets`` supports two date conventions:
 
-    - ``signal_date`` 或 ``date``：由 ``price`` 映射；``next_open`` 严格取下一个
-      全市场交易日，不会为个股停牌继续向后寻找价格。
-    - ``execution_date``：已映射的成交日；若同时给出 ``signal_date``，会校验映射。
+    - ``signal_date`` or ``date``: map using ``price``; ``next_open`` always uses the next
+      market trading day without searching further ahead for suspended stocks.
+    - ``execution_date``: already mapped; supplying ``signal_date`` also validates the mapping.
 
-    每个日期截面被视为完整目标组合，截面未出现的旧持仓目标权重为零。
+    Each date is a complete target portfolio; existing positions omitted from it receive zero target weight.
     """
 
     raw_config = config
@@ -104,7 +104,7 @@ def run_execution(
     )
 
 
-# 短别名方便 notebook / CLI 接入。
+# Short aliases for notebook and CLI use.
 backtest = run_execution
 
 

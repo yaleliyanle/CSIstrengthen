@@ -5,7 +5,7 @@ build-backend = "hatchling.build"
 [project]
 name = "ashare-lab"
 version = "0.1.0"
-description = "简洁、可插拔的 A 股多因子研究与指数增强回测框架"
+description = "A concise, extensible framework for A-share multifactor research and index-enhancement backtesting"
 readme = "README.md"
 requires-python = ">=3.11"
 dependencies = [

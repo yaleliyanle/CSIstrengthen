@@ -1,6 +1,6 @@
-"""TOML 配置读取。
+"""TOML configuration loading.
 
-配置有意只用 dataclass 和 dict：字段一眼可见，也不引入庞大的配置框架。
+Use dataclasses and dicts to keep fields visible without a heavyweight configuration framework.
 """
 
 from __future__ import annotations
@@ -141,7 +141,7 @@ EXTRA_KEYS: dict[str, set[str]] = {
 
 @dataclass(frozen=True)
 class FactorSpec:
-    """一个因子的来源和研究口径。"""
+    """Source and research settings for one factor."""
 
     name: str
     source: str | None = None
@@ -157,12 +157,12 @@ class FactorSpec:
     @classmethod
     def from_dict(cls, value: dict[str, Any]) -> "FactorSpec":
         if "name" not in value:
-            raise ValueError("每个 [[factors]] 都必须填写 name")
+            raise ValueError("Every [[factors]] entry must specify name")
         item = cls(**value)
         if item.direction == 0:
-            raise ValueError(f"因子 {item.name!r} 的 direction 不能为 0")
+            raise ValueError(f"Factor {item.name!r}: direction must not be zero")
         if item.availability_lag < 0:
-            raise ValueError("availability_lag 不能为负数")
+            raise ValueError("availability_lag must be nonnegative")
         return item
 
 
@@ -204,35 +204,35 @@ class Config:
         merged = _deep_merge(DEFAULTS, raw)
         factors = tuple(FactorSpec.from_dict(item) for item in merged.pop("factors", []))
         if not factors:
-            raise ValueError("配置至少需要一个 [[factors]]")
+            raise ValueError("Configuration requires at least one [[factors]] entry")
         config = cls(factors=factors, **merged)
         if config.start > config.end:
-            raise ValueError("research.start 不能晚于 research.end")
+            raise ValueError("research.start must not be after research.end")
         if int(config.research.get("membership_lag", 0)) < 0:
-            raise ValueError("research.membership_lag 不能为负数")
+            raise ValueError("research.membership_lag must be nonnegative")
         if config.data.get("engine", "polars") not in {"polars", "duckdb"}:
-            raise ValueError("data.engine 只能是 polars 或 duckdb")
+            raise ValueError("data.engine must be polars or duckdb")
         if int(config.data.get("batch_size", 16)) < 1:
-            raise ValueError("data.batch_size 必须是正整数")
+            raise ValueError("data.batch_size must be a positive integer")
         if int(config.data.get("duckdb_threads", 4)) < 1:
-            raise ValueError("data.duckdb_threads 必须是正整数")
+            raise ValueError("data.duckdb_threads must be a positive integer")
         aliases = [factor.output_name for factor in factors]
         if len(aliases) != len(set(aliases)):
-            raise ValueError("因子 alias 必须唯一")
+            raise ValueError("Factor aliases must be unique")
         if config.execution["price"] not in {"same_close", "next_open"}:
-            raise ValueError("execution.price 只能是 same_close 或 next_open")
+            raise ValueError("execution.price must be same_close or next_open")
         if config.rules.get("profile", "standard") not in {
             "minimal",
             "standard",
             "custom",
         }:
-            raise ValueError("rules.profile 只能是 minimal、standard 或 custom")
+            raise ValueError("rules.profile must be minimal, standard, or custom")
         if config.portfolio.get("empty_signal", "error") not in {
             "error",
             "hold",
             "cash",
         }:
-            raise ValueError("portfolio.empty_signal 只能是 error、hold 或 cash")
+            raise ValueError("portfolio.empty_signal must be error, hold, or cash")
         _validate_method(
             config.schedule.get("method", "weekly"),
             "schedule.method",
@@ -254,21 +254,21 @@ class Config:
             {"equal", "max_ic_ir", "max_ic"},
         )
         if config.multifactor.get("estimation_universe", "all_a") != "all_a":
-            raise ValueError("multifactor.estimation_universe 当前只支持 all_a")
+            raise ValueError("multifactor.estimation_universe currently supports only all_a")
         if int(config.multifactor.get("lookback_periods", 12)) < 2:
-            raise ValueError("multifactor.lookback_periods 必须至少为 2")
+            raise ValueError("multifactor.lookback_periods must be at least 2")
         shrinkage = float(config.multifactor.get("exposure_shrinkage", 0.1))
         if not 0 <= shrinkage <= 1:
-            raise ValueError("multifactor.exposure_shrinkage 必须在 0 和 1 之间")
+            raise ValueError("multifactor.exposure_shrinkage must be between 0 and 1")
         if int(config.selection.get("horizon", 20)) < 1:
-            raise ValueError("selection.horizon 必须是正整数")
+            raise ValueError("selection.horizon must be a positive integer")
         if config.split.get("method", "fixed") not in {"fixed", "rolling"}:
-            raise ValueError("split.method 只能是 fixed 或 rolling")
+            raise ValueError("split.method must be fixed or rolling")
         if config.rolling.get("window", "expanding") not in {
             "expanding",
             "sliding",
         }:
-            raise ValueError("rolling.window 只能是 expanding 或 sliding")
+            raise ValueError("rolling.window must be expanding or sliding")
         _validate_method(
             config.portfolio.get("method", "benchmark_tilt"),
             "portfolio.method",
@@ -281,7 +281,7 @@ class Config:
             "rank",
             "none",
         }:
-            raise ValueError("preprocess.standardize 只能是 zscore、rank 或 none")
+            raise ValueError("preprocess.standardize must be zscore, rank, or none")
         for section, key in (
             (config.rules, "rules.method"),
             (config.costs, "costs.method"),
@@ -293,7 +293,7 @@ class Config:
                 _validate_method(section[leaf], key, set())
         hac_lags = config.analytics.get("hac_lags", "auto")
         if str(hac_lags).lower() != "auto" and int(hac_lags) < 0:
-            raise ValueError("analytics.hac_lags 只能是 auto 或非负整数")
+            raise ValueError("analytics.hac_lags must be auto or a nonnegative integer")
         return config
 
     def to_dict(self) -> dict[str, Any]:
@@ -302,7 +302,7 @@ class Config:
         return value
 
     def effective_dict(self) -> dict[str, Any]:
-        """返回 profile 展开后的真实规则，用于落盘和 show-config。"""
+        """Return resolved profile rules for persisted output and show-config."""
         value = self.to_dict()
         profile = value["rules"].get("profile", "standard")
         if profile == "minimal":
@@ -328,7 +328,7 @@ class Config:
 
 
 def load_config(path: str | Path, overrides: list[str] | None = None) -> Config:
-    """读取 TOML，并应用任意数量的 ``a.b=value`` 命令行覆盖。"""
+    """Read TOML and apply any number of ``a.b=value`` command-line overrides."""
     with Path(path).open("rb") as file:
         raw = tomllib.load(file)
     raw = apply_overrides(raw, overrides or [])
@@ -336,12 +336,12 @@ def load_config(path: str | Path, overrides: list[str] | None = None) -> Config:
 
 
 def apply_overrides(raw: dict[str, Any], overrides: list[str]) -> dict[str, Any]:
-    """把 ``a.b=value`` 应用到配置副本；CLI 用它保证因子替换后仍可覆盖。"""
+    """Apply ``a.b=value`` to a configuration copy, including after CLI factor replacement."""
     result = copy.deepcopy(raw)
     for override in overrides:
         key, separator, text = override.partition("=")
         if not separator or not key:
-            raise ValueError(f"--set 应写成 key=value，收到: {override!r}")
+            raise ValueError(f"--set must use key=value; received: {override!r}")
         _set_path(result, key.split("."), _parse_value(text))
     return result
 
@@ -357,13 +357,13 @@ def _deep_merge(base: dict[str, Any], update: dict[str, Any]) -> dict[str, Any]:
 
 
 def _check_probable_typos(raw: dict[str, Any]) -> None:
-    """允许插件自带参数，但拦截与内置键高度相似的拼写错误。"""
+    """Allow plugin-specific parameters while catching likely misspellings of built-in keys."""
     top_level = set(DEFAULTS) | {"factors"}
     for section in raw:
         if section not in top_level:
             suggestion = difflib.get_close_matches(section, top_level, n=1)
-            hint = f"，是否想写 {suggestion[0]!r}" if suggestion else ""
-            raise ValueError(f"未知配置段 {section!r}{hint}")
+            hint = f"; did you mean {suggestion[0]!r}" if suggestion else ""
+            raise ValueError(f"Unknown configuration section {section!r}{hint}")
     for section, values in raw.items():
         if section == "factors" or not isinstance(values, dict):
             continue
@@ -374,7 +374,7 @@ def _check_probable_typos(raw: dict[str, Any]) -> None:
             suggestion = difflib.get_close_matches(key, known, n=1, cutoff=0.78)
             if suggestion:
                 raise ValueError(
-                    f"未知配置 {section}.{key}，是否想写 {section}.{suggestion[0]}"
+                    f"Unknown configuration key {section}.{key}; did you mean {section}.{suggestion[0]}"
                 )
 
 
@@ -383,8 +383,8 @@ def _validate_method(value: Any, name: str, builtins: set[str]) -> None:
         return
     text = str(value)
     if text not in builtins and ":" not in text:
-        choices = f"内置值 {sorted(builtins)} 或" if builtins else ""
-        raise ValueError(f"{name} 应为{choices} 模块:函数，收到 {text!r}")
+        choices = f"built-in values {sorted(builtins)} or" if builtins else ""
+        raise ValueError(f"{name} must use {choices} module:function; received {text!r}")
 
 
 def _parse_value(text: str) -> Any:

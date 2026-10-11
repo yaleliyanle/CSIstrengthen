@@ -1,4 +1,4 @@
-"""批量比较不同指数中的 TOP20% 等权策略。"""
+"""Compare top-20% equal-weight strategies across indices."""
 
 from __future__ import annotations
 
@@ -12,16 +12,16 @@ from ashare_lab.settings import load_config
 
 
 INDICES = {
-    "000300.SH": "沪深300",
-    "000905.SH": "中证500",
-    "000906.SH": "中证800",
+    "000300.SH": "CSI 300",
+    "000905.SH": "CSI 500",
+    "000906.SH": "CSI 800",
 }
 METHODS = ("max_ic_ir", "max_ic")
 PORTFOLIO = "ashare_lab.example_plugins:top_twenty_percent"
 
 
 def main() -> None:
-    parser = argparse.ArgumentParser(description="跨指数 TOP20% 等权实验")
+    parser = argparse.ArgumentParser(description="Cross-index top-20% equal-weight experiment")
     parser.add_argument("--config", default="configs/csi1000_multifactor.toml")
     parser.add_argument("--backtest-start", default="2020-11-01")
     parser.add_argument("--end", default="2026-05-27")
@@ -30,7 +30,7 @@ def main() -> None:
         "--index",
         action="append",
         choices=list(INDICES),
-        help="只跑指定指数，可重复；默认三个都跑",
+        help="Run specified indices; repeat to select several; defaults to all three",
     )
     args = parser.parse_args()
 
@@ -98,8 +98,8 @@ def main() -> None:
                 )
             )
             print(
-                f"{index_name} {method}: 累计超额 {total_excess:.2%}，"
-                f"年化超额 {annual_excess:.2%}"
+                f"{index_name} {method}: total excess return {total_excess:.2%}, "
+                f"annualized excess return {annual_excess:.2%}"
             )
 
     output = Path(args.output)
@@ -108,17 +108,17 @@ def main() -> None:
     yearly_table = pl.concat(yearly_frames).sort("index_code", "method", "year")
     summary_table.write_csv(output / "cross_index_summary.csv")
     yearly_table.write_csv(output / "cross_index_yearly.csv")
-    print("\n汇总：")
+    print("\nSummary:")
     print(
         summary_table.select(
             "index_name",
             "method",
-            pl.col("total_excess_return").mul(100).round(2).alias("累计超额%"),
-            pl.col("annual_excess_return").mul(100).round(2).alias("年化超额%"),
+            pl.col("total_excess_return").mul(100).round(2).alias("total_excess_return_pct"),
+            pl.col("annual_excess_return").mul(100).round(2).alias("annual_excess_return_pct"),
             pl.col("information_ratio").round(3),
         )
     )
-    print(f"结果目录：{output}")
+    print(f"Output directory: {output}")
 
 
 if __name__ == "__main__":

@@ -1,4 +1,4 @@
-"""全A估计、中证1000应用的多因子回测流水线。"""
+"""Multifactor backtest pipeline: estimate on all A-shares and apply to CSI 1000."""
 
 from __future__ import annotations
 
@@ -56,23 +56,23 @@ class MultiFactorArtifacts:
 
 
 def load_multifactor_specs(config: Config) -> tuple[FactorSpec, ...]:
-    """从冻结CSV读取因子；未配置文件时沿用 ``[[factors]]``。"""
+    """Read factors from the frozen CSV, or use ``[[factors]]`` if no file is configured."""
 
     text = str(config.multifactor.get("factor_file", "")).strip()
     if not text:
         return config.factors
     path = Path(text)
     if not path.is_file():
-        raise FileNotFoundError(f"多因子清单不存在: {path}")
+        raise FileNotFoundError(f"Multifactor list does not exist: {path}")
     table = pl.read_csv(path)
     if "selected" in table.columns:
         table = table.filter(pl.col("selected"))
     required = {"source"}
     if not required <= set(table.columns):
-        raise ValueError("多因子清单至少需要 source 列")
+        raise ValueError("The multifactor list must contain a source column")
     name_column = "raw_name" if "raw_name" in table.columns else "factor"
     if name_column not in table.columns:
-        raise ValueError("多因子清单需要 raw_name 或 factor 列")
+        raise ValueError("The multifactor list requires a raw_name or factor column")
     direction_column = next(
         (
             column
@@ -98,12 +98,12 @@ def load_multifactor_specs(config: Config) -> tuple[FactorSpec, ...]:
             )
         )
     if not rows:
-        raise ValueError("多因子清单为空")
+        raise ValueError("The multifactor list is empty")
     return tuple(rows)
 
 
 def build_multifactor_inputs(config: Config) -> MultiFactorInputs:
-    """在全A截面预处理并计算持有期标签，再取目标指数成分用于选股。"""
+    """Preprocess all-A-share cross-sections and compute holding-period labels, then select target index constituents."""
 
     catalog, factor_catalog = make_catalogs(config)
     specs = _resolve_factor_sources(load_multifactor_specs(config), factor_catalog)
@@ -126,7 +126,7 @@ def build_multifactor_inputs(config: Config) -> MultiFactorInputs:
         if config.start <= day <= config.end
     ]
     if len(signal_dates) < 3:
-        raise ValueError("多因子滚动研究至少需要三个调仓日")
+        raise ValueError("Rolling multifactor research requires at least three rebalance dates")
 
     members = _members_for_signals(
         catalog, config.benchmark, signal_dates, full_calendar, membership_lag
@@ -140,7 +140,7 @@ def build_multifactor_inputs(config: Config) -> MultiFactorInputs:
     max_lag = max(spec.availability_lag for spec in specs)
     factor_start = config.start - timedelta(days=max_lag * 4 + 10)
 
-    # 全A交易日网格是 lag 的时间轴。DuckDB只把调仓日结果传回 Python。
+    # The all-A-share trading grid defines the lag timeline; DuckDB returns only rebalance-date rows to Python.
     daily_grid = catalog.market(columns=[], start=factor_start, end=config.end)
     stocks = daily_grid.get_column("stock").unique().to_list()
     if hasattr(factor_catalog, "load_many_for_signals"):
@@ -210,10 +210,10 @@ def period_forward_returns(
     calendar: list[date],
     execution: str,
 ) -> tuple[pl.DataFrame, pl.DataFrame]:
-    """计算本次调仓成交价到下次调仓成交价的复权收益。"""
+    """Compute adjusted returns from this rebalance execution price to the next one."""
 
     if execution not in {"same_close", "next_open"}:
-        raise ValueError("execution 只能是 same_close 或 next_open")
+        raise ValueError("execution must be same_close or next_open")
     positions = {day: index for index, day in enumerate(calendar)}
     offset = 0 if execution == "same_close" else 1
     price_column = "adj_close" if execution == "same_close" else "adj_open"
@@ -254,7 +254,7 @@ def period_forward_returns(
 
 
 def run_multifactor_backtest(config: Config) -> MultiFactorArtifacts:
-    """运行动态多因子合成，并复用原有组合、撮合、成本与基准。"""
+    """Run dynamic factor combination using the existing portfolio, execution, cost, and benchmark modules."""
 
     inputs = build_multifactor_inputs(config)
     scores = build_multifactor_scores(
@@ -273,7 +273,7 @@ def run_multifactor_backtest(config: Config) -> MultiFactorArtifacts:
         scored_dates, inputs.calendar, config.end, str(config.execution["price"])
     )
     if not executable:
-        raise ValueError("没有通过暖机期且可以成交的多因子信号")
+        raise ValueError("No executable multifactor signals remain after warm-up")
     scored_panel = scored_panel.filter(pl.col("date").is_in(executable))
     targets = _apply_empty_signal_policy(
         build_targets(scored_panel, config.portfolio),

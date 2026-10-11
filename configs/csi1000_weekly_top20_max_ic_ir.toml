@@ -1,5 +1,5 @@
-# 中证1000周频实验：最大化 IC_IR + 得分前20%等权。
-# 与月频主配置分开保存，便于直接比较且不覆盖原结果。
+# CSI 1000 weekly experiment: maximize IC_IR and equally weight the top-scoring 20%.
+# Keep separate from the monthly configuration for comparison without overwriting its results.
 
 [data]
 engine = "duckdb"
@@ -34,7 +34,7 @@ min_factor_count = 1
 method = "max_ic_ir"
 factor_file = "configs/csi1000_selected_32.csv"
 estimation_universe = "all_a"
-# 周频下52个已结束持有期约等于一年，对应月频配置的12期。
+# 52 completed weekly periods span about a year, corresponding to 12 monthly periods.
 lookback_periods = 52
 group_by_source = true
 exposure_shrinkage = 0.1

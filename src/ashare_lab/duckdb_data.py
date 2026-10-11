@@ -1,7 +1,7 @@
-"""DuckDB 数据后端。
+"""DuckDB data backend.
 
-本模块只负责 Parquet 扫描、行列过滤和连接；研究层仍使用与 Polars
-后端完全相同的 ``date`` / ``stock`` 接口。切换后端不会改变策略口径。
+This module handles Parquet scanning, row/column filtering, and joins. The research layer uses
+the same ``date`` / ``stock`` interface as Polars, preserving strategy semantics across backends.
 """
 
 from __future__ import annotations
@@ -35,12 +35,12 @@ def _unique(values: Sequence[str]) -> list[str]:
 
 def _quote(name: str) -> str:
     if not name or "\x00" in name:
-        raise ValueError(f"非法字段名: {name!r}")
+        raise ValueError(f"Invalid field name: {name!r}")
     return '"' + name.replace('"', '""') + '"'
 
 
 def _frame(connection: duckdb.DuckDBPyConnection, sql: str, params=()) -> pl.DataFrame:
-    """执行 SQL 并直接返回 Polars DataFrame。"""
+    """Execute SQL and return a Polars DataFrame directly."""
 
     return connection.execute(sql, params).pl()
 
@@ -54,9 +54,10 @@ def _schema(connection: duckdb.DuckDBPyConnection, path: Path) -> dict[str, str]
 
 @dataclass
 class DuckDBDataCatalog:
-    """与 :class:`DataCatalog` 同接口的 DuckDB 实现。"""
+    """DuckDB implementation of the :class:`DataCatalog` interface."""
 
     root: str | Path = Path("a share")
+    # Match the same original dataset filenames as the Polars catalog.
     market_name: str = "A股行情数据.parquet"
     valuation_name: str = "A股估值数据.parquet"
     index_name: str = "指数成分股.parquet"
@@ -87,7 +88,7 @@ class DuckDBDataCatalog:
         raw_types = _schema(self._con, path)
         for key in ("trade_dt", "s_info_windcode"):
             if key not in raw_types:
-                raise ValueError(f"{path.name} 缺少键字段 {key!r}")
+                raise ValueError(f"{path.name} is missing key field {key!r}")
         canonical = {raw: aliases.get(raw, raw) for raw in raw_types}
         reverse = {name: raw for raw, name in canonical.items()}
         available = [canonical[name] for name in raw_types]
@@ -98,7 +99,7 @@ class DuckDBDataCatalog:
         )
         unknown = [name for name in wanted if name not in reverse]
         if unknown:
-            raise KeyError(f"未知字段 {unknown}; 可用字段: {available}")
+            raise KeyError(f"Unknown fields {unknown}; available fields: {available}")
 
         projection = [
             "cast(trade_dt as date) as date",
@@ -216,7 +217,7 @@ class DuckDBDataCatalog:
             self._con.unregister("__ashare_dates")
         missing = sorted(set(requested) - set(result["date"].to_list()))
         if strict and missing:
-            raise ValueError(f"这些日期没有更早的指数快照: {missing}")
+            raise ValueError(f"No earlier index snapshots for these dates: {missing}")
         return result
 
     load_index_members = index_members
@@ -235,7 +236,7 @@ class DuckDBDataCatalog:
         wanted = _unique(stocks)
         missing = [stock for stock in wanted if stock not in available]
         if strict and missing:
-            raise KeyError(f"行业表没有这些股票列: {missing}")
+            raise KeyError(f"The industry table is missing stock columns: {missing}")
         wanted = [stock for stock in wanted if stock in available]
         if not wanted:
             return pl.DataFrame(
@@ -306,7 +307,7 @@ class DuckDBDataCatalog:
 
 @dataclass
 class DuckDBFactorCatalog:
-    """按因子批次扫描年度 Parquet，并在 DuckDB 内连接股票池。"""
+    """Scan annual Parquet files in factor batches and join the stock universe inside DuckDB."""
 
     root: str | Path = Path("factor")
     batch_size: int = 16
@@ -327,13 +328,13 @@ class DuckDBFactorCatalog:
             source, year = path.parent.name, int(match.group(1))
             files = self._files.setdefault(source, {})
             if year in files:
-                raise ValueError(f"{source} 的 {year} 年有多个因子文件")
+                raise ValueError(f"{source} has multiple factor files for {year}")
             files[year] = path
         for source, files in self._files.items():
             schema = _schema(self._con, files[min(files)])
             missing = {"trade_dt", "s_info_windcode"} - set(schema)
             if missing:
-                raise ValueError(f"{source} 缺少键字段: {sorted(missing)}")
+                raise ValueError(f"{source} is missing key fields: {sorted(missing)}")
             self._schemas[source] = schema
 
     @property
@@ -342,7 +343,7 @@ class DuckDBFactorCatalog:
 
     def _check_source(self, source: str) -> None:
         if source not in self._files:
-            raise KeyError(f"未知因子源 {source!r}; 可用: {list(self.sources)}")
+            raise KeyError(f"Unknown factor source {source!r}; available: {list(self.sources)}")
 
     def factor_names(self, source: str) -> tuple[str, ...]:
         self._check_source(source)
@@ -394,14 +395,14 @@ class DuckDBFactorCatalog:
             wanted = sorted(set(years))
             missing = [year for year in wanted if year not in files]
             if missing:
-                raise FileNotFoundError(f"{source} 缺少年度文件: {missing}")
+                raise FileNotFoundError(f"{source} is missing annual files: {missing}")
         else:
             first = _day(start).year if start is not None else min(files)
             last = _day(end).year if end is not None else max(files)
             wanted = [year for year in sorted(files) if first <= year <= last]
         paths = [str(files[year]) for year in wanted]
         if not paths:
-            raise FileNotFoundError(f"{source} 在请求日期内没有年度文件")
+            raise FileNotFoundError(f"{source} has no annual files within the requested dates")
         return paths
 
     @staticmethod
@@ -424,7 +425,7 @@ class DuckDBFactorCatalog:
         names = [names] if isinstance(names, str) else _unique(names)
         unknown = [name for name in names if name not in self.factor_names(source)]
         if unknown:
-            raise KeyError(f"{source} 没有因子 {unknown}")
+            raise KeyError(f"{source} has no factors {unknown}")
         paths = self._paths(source, start, end, years)
         clauses: list[str] = []
         params: list[object] = [paths]
@@ -466,7 +467,7 @@ class DuckDBFactorCatalog:
         stocks: Sequence[str] | None = None,
         universe: pl.DataFrame | pl.LazyFrame | None = None,
     ) -> pl.DataFrame:
-        """在 DuckDB 内逐批左连接；输出与原 Polars 接口一致。"""
+        """Left-join batches inside DuckDB, preserving the original Polars interface."""
 
         normalized = self._normalize_requests(requests)
         if universe is None:
@@ -479,7 +480,7 @@ class DuckDBFactorCatalog:
             base = universe.collect() if isinstance(universe, pl.LazyFrame) else universe
             missing = set(KEYS) - set(base.columns)
             if missing:
-                raise ValueError(f"universe 缺少键字段: {sorted(missing)}")
+                raise ValueError(f"universe is missing key fields: {sorted(missing)}")
             if start is not None:
                 base = base.filter(pl.col("date") >= _day(start))
             if end is not None:
@@ -499,7 +500,7 @@ class DuckDBFactorCatalog:
         start: DateLike,
         end: DateLike,
     ) -> pl.DataFrame:
-        """在完整交易日网格上计算 lag，但只把调仓日结果传回研究层。"""
+        """Compute lags on the full trading-day grid and return only rebalance rows to the research layer."""
 
         normalized = self._normalize_requests(requests)
         dates = sorted({_day(value) for value in signal_dates})
@@ -533,14 +534,14 @@ class DuckDBFactorCatalog:
             names = [values] if isinstance(values, str) else _unique(values)
             unknown = [name for name in names if name not in self.factor_names(source)]
             if unknown:
-                raise KeyError(f"{source} 没有因子 {unknown}")
+                raise KeyError(f"{source} has no factors {unknown}")
             overlap = seen & set(names)
             if overlap:
-                raise ValueError(f"多源请求含重名因子: {sorted(overlap)}")
+                raise ValueError(f"Multi-source requests contain duplicate factor names: {sorted(overlap)}")
             seen.update(names)
             normalized[source] = names
         if not normalized:
-            raise ValueError("requests 不能为空")
+            raise ValueError("requests must not be empty")
         return normalized
 
     def _join_batches(
@@ -573,7 +574,7 @@ class DuckDBFactorCatalog:
                         [paths],
                     )
                     if joined.height != work.height:
-                        raise ValueError(f"{source} 的 date/stock 存在重复记录")
+                        raise ValueError(f"{source} contains duplicate date/stock records")
                     result = result.with_columns(
                         [joined.get_column(name) for name in batch]
                     )
@@ -634,7 +635,7 @@ class DuckDBFactorCatalog:
             params = [paths]
         batch = _frame(self._con, sql, params)
         if batch.height != current.height:
-            raise ValueError(f"{source} 的 date/stock 存在重复记录")
+            raise ValueError(f"{source} contains duplicate date/stock records")
         return current.join(batch, on=KEYS, how="left")
 
 

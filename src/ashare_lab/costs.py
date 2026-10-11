@@ -1,7 +1,7 @@
-"""交易费用模型。
+"""Transaction cost models.
 
-这里集中放置佣金、印花税和过户费。想改费用时，只需要阅读或替换本文件，
-不必进入撮合循环。
+Commission, stamp duty, and transfer fees are defined here. Modify or replace this file
+to change costs without touching the execution loop.
 """
 
 from __future__ import annotations
@@ -23,7 +23,7 @@ FeeRule: TypeAlias = Callable[[date, Side, float], float]
 
 @dataclass(frozen=True)
 class CostContext:
-    """逐笔费用上下文；需要区分股票/交易所时用这一参数。"""
+    """Per-trade cost context for models that distinguish stocks or exchanges."""
 
     date: date
     side: Side
@@ -43,31 +43,31 @@ class TradeCost:
 
 
 class CostModel(Protocol):
-    """自定义成本模型只需实现这个方法。"""
+    """Custom cost models only need to implement this method."""
 
     def calculate(self, day: date, side: Side, value: float) -> TradeCost: ...
 
 
 @dataclass(frozen=True)
 class NoCosts:
-    """``minimal`` profile 使用的零费用模型，也可单独注入。"""
+    """Zero-cost model used by the ``minimal`` profile; it can also be injected independently."""
 
     def calculate(self, _day: date, _side: Side, _value: float) -> TradeCost:
         return TradeCost()
 
 
 def no_costs(_day: date, _side: Side, _value: float) -> TradeCost:
-    """零费用函数版；配置中可写 ``ashare_lab.execution:no_costs``。"""
+    """Functional zero-cost model; configure it as ``ashare_lab.execution:no_costs``."""
 
     return TradeCost()
 
 
 @dataclass(frozen=True)
 class HistoricalAshareCosts:
-    """佣金、印花税和过户费。
+    """Commission, stamp duty, and transfer fees.
 
-    ``stamp_tax`` / ``transfer_fee`` 可设为 ``False`` 关闭，也可传入一个
-    ``(date, side, value) -> fee`` 函数完全替换内置规则。
+    Set ``stamp_tax`` / ``transfer_fee`` to ``False`` to disable them, or supply a
+    ``(date, side, value) -> fee`` function to replace the built-in rules.
     """
 
     commission_rate: float = 0.0003
@@ -77,7 +77,7 @@ class HistoricalAshareCosts:
 
     def __post_init__(self) -> None:
         if self.commission_rate < 0 or self.minimum_commission < 0:
-            raise ValueError("佣金率和最低佣金不能为负数")
+            raise ValueError("Commission rate and minimum commission must be nonnegative")
 
     @classmethod
     def from_dict(
@@ -109,7 +109,7 @@ class HistoricalAshareCosts:
 
 
 def historical_stamp_tax_rate(day: date, side: Side) -> float:
-    """返回历史印花税率；边界日按政策生效日处理。"""
+    """Return historical stamp-duty rates, using policy effective dates as boundaries."""
 
     if day < date(2005, 1, 24):
         return 0.002
@@ -125,7 +125,7 @@ def historical_stamp_tax_rate(day: date, side: Side) -> float:
 
 
 def historical_transfer_fee_rate(day: date, _side: Side) -> float:
-    """当前数据所需的过户费历史：2022-04-29 起减半，双边收取。"""
+    """Transfer-fee history used by this dataset: halved on 2022-04-29 and charged on both sides."""
 
     return 0.00001 if day >= date(2022, 4, 29) else 0.00002
 
@@ -145,7 +145,7 @@ def coerce_cost_model(
     | str
     | None,
 ) -> CostModel | Callable[[date, Side, float], TradeCost]:
-    """把配置值变成统一的费用模型。"""
+    """Convert configuration values into a consistent cost model."""
 
     if value is None:
         return HistoricalAshareCosts()
@@ -157,7 +157,7 @@ def coerce_cost_model(
         value = import_callable(value)
     if callable(value) or callable(getattr(value, "calculate", None)):
         return value
-    raise TypeError("cost_model 应实现 calculate()、是可调用函数或 dict")
+    raise TypeError("cost_model must implement calculate(), be callable, or be a dict")
 
 
 def trade_cost(
@@ -167,7 +167,7 @@ def trade_cost(
     value: float,
     stock: str = "",
 ) -> TradeCost:
-    """调用费用模型；兼容旧三参数函数和单 ``CostContext`` 函数。"""
+    """Call cost models supporting either the legacy three arguments or a single ``CostContext``."""
 
     if value <= 0:
         return TradeCost()
@@ -182,17 +182,17 @@ def trade_cost(
         else target(day, side, value)
     )
     if not isinstance(result, TradeCost):
-        raise TypeError("cost_model 必须返回 TradeCost")
+        raise TypeError("cost_model must return TradeCost")
     amounts = (result.commission, result.stamp_tax, result.transfer_fee)
     if any(not np.isfinite(item) or item < 0 for item in amounts):
-        raise ValueError("cost_model 返回的费用必须是非负有限数")
+        raise ValueError("cost_model must return nonnegative finite fees")
     return result
 
 
 def _takes_one_argument(function: Callable[..., Any]) -> bool:
     try:
         return _takes_one_argument_cached(function)
-    except TypeError:  # 少数不可哈希的 callable object
+    except TypeError:  # Some callable objects are unhashable
         return _inspect_one_argument(function)
 
 
@@ -228,7 +228,7 @@ def _component_fee(
     if isinstance(setting, (int, float)) and not isinstance(setting, bool):
         rate = float(setting)
         if not np.isfinite(rate) or rate < 0:
-            raise ValueError("固定费率必须是非负有限数")
+            raise ValueError("Fixed fee rates must be nonnegative and finite")
         return value * rate
     return float((builtin if setting is True else setting)(day, side, value))
 
@@ -239,7 +239,7 @@ def _fee_switch(value: Any, name: str) -> bool | FeeRule:
     if isinstance(value, (int, float)):
         rate = float(value)
         if not np.isfinite(rate) or rate < 0:
-            raise ValueError(f"{name} 固定费率必须是非负有限数")
+            raise ValueError(f"{name} Fixed fee rates must be nonnegative and finite")
         return lambda _day, _side, amount: amount * rate
     if isinstance(value, str) and ":" in value:
         return import_callable(value)  # type: ignore[return-value]
@@ -247,7 +247,7 @@ def _fee_switch(value: Any, name: str) -> bool | FeeRule:
         return False
     if str(value).lower() in {"historical", "on", "true"}:
         return True
-    raise ValueError(f"{name} 应为 historical/off 或费用函数")
+    raise ValueError(f"{name} must be historical/off or a fee function")
 
 
 __all__ = [

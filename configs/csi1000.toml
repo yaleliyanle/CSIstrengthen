@@ -1,10 +1,10 @@
-# 所有选项都能用命令行覆盖，例如：
+# All options can be overridden from the command line, for example:
 # ashare-lab backtest --config configs/csi1000.toml --execution same_close
 
 [data]
-engine = "polars"             # polars / duckdb；只改变数据后端，不改变研究口径
-batch_size = 16               # DuckDB 每批读取的因子数量
-duckdb_threads = 4            # DuckDB 查询线程数
+engine = "polars"             # polars / duckdb; changes the data backend only, preserving research semantics
+batch_size = 16               # Number of factors per DuckDB batch
+duckdb_threads = 4            # Number of DuckDB query threads
 market = "a share/A股行情数据.parquet"
 valuation = "a share/A股估值数据.parquet"
 industry = "a share/A股行业分类.parquet"
@@ -15,9 +15,9 @@ factor_root = "factor"
 start = "2014-10-31"
 end = "2025-12-30"
 benchmark = "000852.SH"
-membership_lag = 0             # 成分快照额外滞后交易日；保守口径可设为 1
+membership_lag = 0             # Extra trading-day lag for constituent snapshots; use 1 for a conservative assumption
 
-# direction=-1 表示数值越小越好；availability_lag 是信息可得滞后交易日数。
+# direction=-1 favors lower values; availability_lag counts trading days until information is available.
 [[factors]]
 source = "基本面因子"
 name = "bp_lf"
@@ -42,26 +42,26 @@ availability_lag = 0
 [preprocess]
 winsor_lower = 0.01
 winsor_upper = 0.99
-standardize = "zscore"       # zscore / rank / none；整套插件写 preprocess.method
+standardize = "zscore"       # zscore / rank / none; set preprocess.method for a full preprocessing plugin
 neutralize_industry = true
 neutralize_size = true
 missing = "renormalize"      # renormalize / require_all
 min_factor_count = 2
 
 [combine]
-method = "weighted"          # weighted / equal / rank_average / 模块:函数
+method = "weighted"          # weighted / equal / rank_average / module:function
 
 [selection]
-method = "ic"                # ic / lasso / 模块:函数
-horizon = 20                 # 用未来多少个交易日的收益筛选
+method = "ic"                # ic / lasso / module:function
+horizon = 20                 # Forward-return horizon in trading days for factor selection
 min_coverage = 0.8
 min_abs_rank_ic = 0.02
 min_abs_t = 2.0
-alpha = 0.02                 # Lasso 惩罚强度；越大，保留因子越少
+alpha = 0.02                 # Lasso penalty; a larger value retains fewer factors
 tolerance = 1e-7
 max_iter = 1000
 coefficient_tolerance = 1e-10
-top_n = 0                    # 0 不限制；正数只保留系数最大的 N 个
+top_n = 0                    # 0 means no limit; a positive value retains the N largest coefficients
 ic_thresholds = [0.01, 0.02, 0.03]
 alpha_grid = [0.01, 0.02, 0.05]
 min_direction_stability = 0.6
@@ -69,32 +69,32 @@ min_direction_stability = 0.6
 [split]
 method = "fixed"             # fixed / rolling
 train_start = "2014-10-31"
-train_end = "2019-04-30"    # 前 4.5 年
+train_end = "2019-04-30"    # First 4.5 years
 validation_start = "2019-05-01"
-validation_end = "2020-10-31" # 接着 1.5 年
+validation_end = "2020-10-31" # Following 1.5 years
 test_start = "2020-11-01"
-test_end = "2023-10-31"     # 接着 3 年；本阶段完全不读取
+test_end = "2023-10-31"     # Following 3 years; not read at this stage
 live_start = "2023-11-01"
-live_end = "2026-06-30"     # 剩余区间；本阶段完全不读取
+live_end = "2026-06-30"     # Remaining interval; not read at this stage
 
 [rolling]
 window = "expanding"        # expanding / sliding
-train_months = 24            # 滚动验证只在 train+validation 开发区间内运行
+train_months = 24            # Rolling validation runs only within the train + validation development interval
 validation_months = 6
 step_months = 6
 
 [charts]
-enabled = true               # false 时不生成图表
+enabled = true               # Set false to disable charts
 width = 1100
 height = 500
-# method = "你的模块:你的函数"  # 可替换整套绘图逻辑
+# method = "your_module:your_function"  # Replace the entire charting method
 
 [schedule]
 method = "weekly"            # daily / weekly / monthly / quarterly / every_n_days
 every_n_days = 5
 
 [portfolio]
-method = "benchmark_tilt"    # benchmark_tilt / top_n_equal / top_n_benchmark / 模块:函数
+method = "benchmark_tilt"    # benchmark_tilt / top_n_equal / top_n_benchmark / module:function
 empty_signal = "error"       # error / hold / cash
 top_n = 100
 tilt = 0.35
@@ -105,11 +105,11 @@ max_weight = 0.02
 price = "next_open"          # next_open / same_close
 initial_cash = 100000000.0
 record_positions = true
-allow_same_close = false      # true 表示已知悉收盘因子可能存在前视风险
-allow_target_weight_above_one = true  # 原始权重略超 100% 时保留原值，由现金约束处理
+allow_same_close = false      # true acknowledges possible look-ahead bias in closing factors
+allow_target_weight_above_one = true  # Preserve raw weights slightly above 100%; let the cash constraint handle execution
 
 [rules]
-profile = "custom"           # 本次给定权重回测：只启用停牌限制
+profile = "custom"           # This supplied-weight backtest enables suspension restrictions only
 block_suspended = true
 block_limit = false
 use_eod_limit_for_open = false
@@ -126,7 +126,7 @@ horizons = [1, 5, 20]
 quantiles = 5
 annual_days = 252
 risk_free_rate = 0.0
-hac_lags = "auto"            # 重叠收益的 Newey-West 阶数；auto 或非负整数
+hac_lags = "auto"            # Newey-West lag order for overlapping returns; auto or a nonnegative integer
 
 [output]
 directory = "outputs/csi1000"

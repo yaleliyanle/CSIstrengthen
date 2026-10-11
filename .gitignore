@@ -19,6 +19,7 @@ factor/
 *.xlsx
 
 # Local handoff copies and report workspaces.
+# These names match existing local directories; they are not uploaded.
 中证指数增强阶段性交付_20260724/
 券商研报_多因子指数增强/
 

@@ -1,4 +1,4 @@
-"""净值与主动收益指标。"""
+"""NAV and active-return metrics."""
 
 from __future__ import annotations
 
@@ -17,9 +17,9 @@ def performance_metrics(
     annual_days: int = 252,
     risk_free_rate: float = 0.0,
 ) -> dict[str, float | int | None]:
-    """计算常见业绩指标；空样本返回明确错误。"""
+    """Compute common performance metrics; reject empty samples explicitly."""
     if daily.is_empty():
-        raise ValueError("没有净值数据可计算指标")
+        raise ValueError("No NAV data available for computing metrics")
     nav = daily[nav_column].cast(pl.Float64).to_numpy()
     returns = daily[return_column].cast(pl.Float64).fill_null(0.0).to_numpy()
     finite_returns = returns[np.isfinite(returns)]
@@ -59,7 +59,7 @@ def compare_with_benchmark(
     annual_days: int = 252,
     risk_free_rate: float = 0.0,
 ) -> tuple[pl.DataFrame, dict[str, Any]]:
-    """按日对齐；``excess_nav`` 是策略净值 / 基准净值。"""
+    """Align by date; ``excess_nav`` is strategy NAV divided by benchmark NAV."""
     strategy_base = _initial_nav(strategy, "nav", "daily_return")
     benchmark_base = _initial_nav(benchmark, "nav", "daily_return")
     strategy_summary = performance_metrics(
@@ -101,7 +101,7 @@ def compare_with_benchmark(
 
 
 def _initial_nav(daily: pl.DataFrame, nav_column: str, return_column: str) -> float:
-    """优先读撮合器写出的本金；否则由首日收益反推。"""
+    """Use initial capital recorded by execution, or infer it from the first day's return."""
     if "initial_nav" in daily.columns:
         values = daily["initial_nav"].drop_nulls()
         if len(values):

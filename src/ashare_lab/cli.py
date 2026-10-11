@@ -1,4 +1,4 @@
-"""命令行入口；常用参数有短选项，其余一律用 ``--set`` 覆盖。"""
+"""CLI entry point: common settings have dedicated options; override others with ``--set``."""
 
 from __future__ import annotations
 
@@ -26,51 +26,51 @@ DEFAULT_CONFIG = "configs/csi1000.toml"
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
         prog="ashare-lab",
-        description="A 股单因子、多因子与指数增强回测",
+        description="A-share single-factor and multifactor research and index-enhancement backtesting",
     )
     subparsers = parser.add_subparsers(dest="command", required=True)
 
     for name, help_text in [
-        ("show-config", "显示最终生效的配置"),
-        ("data-info", "查看数据文件和因子源，不跑回测"),
-        ("list-factors", "列出可用因子名称"),
-        ("single-factor", "运行单因子 IC 和分组检验"),
-        ("select-factors", "用 IC 或 Lasso 筛选一组因子"),
-        ("validate-factors", "固定划分或滚动验证 IC→Lasso 两层筛选"),
-        ("multi-factor", "运行全A估计、目标指数应用的动态多因子策略"),
-        ("backtest", "运行多因子中证1000增强回测"),
+        ("show-config", "Show the resolved configuration"),
+        ("data-info", "Inspect data files and factor sources without backtesting"),
+        ("list-factors", "List available factor names"),
+        ("single-factor", "Run single-factor IC and quantile diagnostics"),
+        ("select-factors", "Select factors using IC or Lasso"),
+        ("validate-factors", "Validate IC-to-Lasso selection with fixed splits or rolling folds"),
+        ("multi-factor", "Run a dynamic multifactor strategy estimated on all A-shares and applied to the target index"),
+        ("backtest", "Run a multifactor CSI 1000 enhancement backtest"),
     ]:
         command = subparsers.add_parser(name, help=help_text)
         _common_arguments(command)
         if name == "list-factors":
-            command.add_argument("--source", help="只看一个因子目录，例如 基本面因子")
-            command.add_argument("--contains", help="只看名称包含该文字的因子")
+            command.add_argument("--source", help="Inspect one factor source directory (use its original dataset name)")
+            command.add_argument("--contains", help="Show factors whose names contain this text")
         if name == "select-factors":
             command.add_argument(
                 "--source",
                 action="append",
-                help="使用该目录中的全部因子，可重复，例如 基本面因子",
+                help="Use all factors in a source directory; repeat to include multiple sources",
             )
-            command.add_argument("--contains", help="只保留名称包含该文字的因子")
+            command.add_argument("--contains", help="Keep factors whose names contain this text")
             command.add_argument("--method", choices=["ic", "lasso"])
-            command.add_argument("--horizon", type=int, help="前瞻收益日数")
+            command.add_argument("--horizon", type=int, help="Forward-return horizon in trading days")
         if name == "validate-factors":
             command.add_argument(
                 "--source",
                 action="append",
-                help="使用该目录中的全部因子，可重复，例如 基本面因子",
+                help="Use all factors in a source directory; repeat to include multiple sources",
             )
-            command.add_argument("--contains", help="只保留名称包含该文字的因子")
+            command.add_argument("--contains", help="Keep factors whose names contain this text")
             command.add_argument("--split", choices=["fixed", "rolling"])
             for option, label in [
-                ("train-start", "训练开始日"),
-                ("train-end", "训练结束日"),
-                ("validation-start", "验证开始日"),
-                ("validation-end", "验证结束日"),
-                ("test-start", "样本外开始日"),
-                ("test-end", "样本外结束日"),
-                ("live-start", "模拟实盘开始日"),
-                ("live-end", "模拟实盘结束日"),
+                ("train-start", "Training start date"),
+                ("train-end", "Training end date"),
+                ("validation-start", "Validation start date"),
+                ("validation-end", "Validation end date"),
+                ("test-start", "Out-of-sample start date"),
+                ("test-end", "Out-of-sample end date"),
+                ("live-start", "Simulated-live start date"),
+                ("live-end", "Simulated-live end date"),
             ]:
                 command.add_argument(f"--{option}", help=f"{label} YYYY-MM-DD")
             command.add_argument(
@@ -83,51 +83,51 @@ def build_parser() -> argparse.ArgumentParser:
             command.add_argument(
                 "--combination",
                 choices=["equal", "max_ic_ir", "max_ic"],
-                help="多因子合成方法",
+                help="Multifactor combination method",
             )
-            command.add_argument("--factor-file", help="冻结因子清单CSV")
-            command.add_argument("--lookback", type=int, help="历史IC窗口期数")
+            command.add_argument("--factor-file", help="Frozen factor-list CSV")
+            command.add_argument("--lookback", type=int, help="Number of periods in the historical IC window")
             command.add_argument(
-                "--backtest-start", help="策略净值开始信号日 YYYY-MM-DD"
+                "--backtest-start", help="First signal date for strategy NAV, YYYY-MM-DD"
             )
     return parser
 
 
 def _common_arguments(parser: argparse.ArgumentParser) -> None:
-    parser.add_argument("--config", default=DEFAULT_CONFIG, help="TOML 配置文件")
-    parser.add_argument("--start", help="开始日 YYYY-MM-DD")
-    parser.add_argument("--end", help="结束日 YYYY-MM-DD")
+    parser.add_argument("--config", default=DEFAULT_CONFIG, help="TOML configuration file")
+    parser.add_argument("--start", help="Start date, YYYY-MM-DD")
+    parser.add_argument("--end", help="End date, YYYY-MM-DD")
     parser.add_argument(
         "--rebalance",
         choices=["daily", "weekly", "monthly", "quarterly", "every_n_days"],
-        help="调仓频率",
+        help="Rebalance frequency",
     )
     parser.add_argument(
-        "--execution", choices=["same_close", "next_open"], help="成交时点"
+        "--execution", choices=["same_close", "next_open"], help="Execution timing"
     )
     parser.add_argument(
         "--rules",
         choices=["minimal", "standard", "custom"],
-        help="交易规则档位：极简、标准A股、逐项自定义",
+        help="Trading profile: minimal, standard A-share, or individually customized",
     )
-    parser.add_argument("--output", help="输出根目录")
+    parser.add_argument("--output", help="Output root directory")
     parser.add_argument(
         "--data-engine",
         choices=["polars", "duckdb"],
-        help="Parquet 数据后端；默认读取 TOML 中的 data.engine",
+        help="Parquet data backend; defaults to data.engine in TOML",
     )
     parser.add_argument(
         "--factor",
         action="append",
         metavar="SOURCE:NAME[:DIRECTION[:WEIGHT]]",
-        help="替换配置因子，可重复；复杂名称请加引号",
+        help="Replace configured factors; repeat to add factors; quote complex names",
     )
     parser.add_argument(
         "--set",
         action="append",
         default=[],
         metavar="KEY=VALUE",
-        help="覆盖任意配置，可重复，例如 --set portfolio.tilt=0.5",
+        help="Override any setting; repeat as needed, e.g. --set portfolio.tilt=0.5",
     )
     parser.add_argument("--debug", action="store_true", help=argparse.SUPPRESS)
 
@@ -146,34 +146,34 @@ def main(argv: list[str] | None = None) -> int:
             _print_factors(config, args.source, args.contains)
         elif args.command == "single-factor":
             reports = run_factor_research(config)
-            print(f"完成 {len(reports)} 组单因子检验。")
-            print(f"结果目录: {Path(config.output['directory']) / 'single_factor'}")
+            print(f"Completed {len(reports)} single-factor diagnostics.")
+            print(f"Output directory: {Path(config.output['directory']) / 'single_factor'}")
         elif args.command == "select-factors":
             result = run_factor_selection(config)
-            print(f"筛选方法：{result.method}")
-            print(f"入选 {len(result.selected)} 个：{', '.join(result.selected) or '无'}")
-            print(f"结果目录: {Path(config.output['directory']) / 'factor_selection'}")
+            print(f"Selection method: {result.method}")
+            print(f"Selected {len(result.selected)} factors: {', '.join(result.selected) or 'none'}")
+            print(f"Output directory: {Path(config.output['directory']) / 'factor_selection'}")
         elif args.command == "validate-factors":
             result = run_factor_validation(config)
-            print(f"验证方式：{result.method}")
-            print(f"最佳 IC 门槛：{result.best_ic_threshold}")
-            print(f"最佳 Lasso alpha：{result.best_alpha}")
-            print(f"最终入选 {len(result.selected)} 个：{', '.join(result.selected) or '无'}")
-            print(f"结果目录: {Path(config.output['directory']) / 'factor_validation'}")
+            print(f"Validation method: {result.method}")
+            print(f"Best IC threshold: {result.best_ic_threshold}")
+            print(f"Best Lasso alpha: {result.best_alpha}")
+            print(f"Final selection of {len(result.selected)} factors: {', '.join(result.selected) or 'none'}")
+            print(f"Output directory: {Path(config.output['directory']) / 'factor_validation'}")
         elif args.command == "multi-factor":
             result = run_multifactor_backtest(config)
-            print(f"合成方法：{result.method}")
+            print(f"Combination method: {result.method}")
             print(json.dumps(result.summary, ensure_ascii=False, indent=2, default=str))
-            print(f"结果目录: {result.output_directory}")
+            print(f"Output directory: {result.output_directory}")
         elif args.command == "backtest":
             artifacts = run_backtest(config)
             print(json.dumps(artifacts.summary, ensure_ascii=False, indent=2, default=str))
-            print(f"结果目录: {artifacts.output_directory}")
+            print(f"Output directory: {artifacts.output_directory}")
         return 0
     except Exception as error:
         if args.debug:
             raise
-        parser.exit(2, f"错误: {error}\n使用 --debug 可查看完整堆栈。\n")
+        parser.exit(2, f"Error: {error}\nUse --debug to see the full traceback.\n")
 
 
 def _config_from_args(args: argparse.Namespace) -> Config:
@@ -216,7 +216,7 @@ def _config_from_args(args: argparse.Namespace) -> Config:
     contains = getattr(args, "contains", None)
     if args.command in {"select-factors", "validate-factors"} and sources:
         if args.factor:
-            raise ValueError("--source 和 --factor 不能同时使用")
+            raise ValueError("--source and --factor cannot be used together")
         _, catalog = make_catalogs(config)
         discovered = catalog.list_factors()
         discovered = discovered.filter(pl.col("source").is_in(sources))
@@ -229,7 +229,7 @@ def _config_from_args(args: argparse.Namespace) -> Config:
             for row in discovered.iter_rows(named=True)
         ]
         if not raw["factors"]:
-            raise ValueError("--source/--contains 没有匹配到因子")
+            raise ValueError("--source/--contains did not match any factors")
     return Config.from_dict(apply_overrides(raw, list(args.set)))
 
 
@@ -237,7 +237,7 @@ def _parse_factor(text: str) -> dict[str, Any]:
     parts = text.split(":")
     if len(parts) not in {2, 3, 4} or not parts[0] or not parts[1]:
         raise ValueError(
-            f"--factor 应写成 SOURCE:NAME[:DIRECTION[:WEIGHT]]，收到 {text!r}"
+            f"--factor must use SOURCE:NAME[:DIRECTION[:WEIGHT]]; received {text!r}"
         )
     result: dict[str, Any] = {"source": parts[0], "name": parts[1]}
     if len(parts) >= 3:
@@ -252,9 +252,9 @@ def _print_data_info(config: Config) -> None:
     files = data.info().select("dataset", "path", "columns", "size_bytes").with_columns(
         (pl.col("size_bytes") / 1024**3).round(3).alias("size_gb")
     ).drop("size_bytes")
-    print("行情与辅助数据")
+    print("Market and auxiliary data")
     print(files)
-    print("\n因子数据")
+    print("\nFactor data")
     print(factors.info().with_columns(
         (pl.col("size_bytes") / 1024**3).round(3).alias("size_gb")
     ).drop("size_bytes"))
@@ -266,24 +266,24 @@ def _print_factors(config: Config, source: str | None, contains: str | None) -> 
     if contains:
         result = result.filter(pl.col("name").str.contains(contains, literal=True))
     print(result)
-    print(f"共 {result.height} 个因子")
+    print(f"Total: {result.height} factors")
 
 
 def _effective_rules(config: Config) -> str:
     profile = config.rules.get("profile", "standard")
     if profile == "minimal":
-        return "\n有效规则: minimal（只要求价格存在；无停牌/涨跌停/T+1限制；费用为0）"
+        return "\nEffective rules: minimal (requires a price only; no suspension/price-limit/T+1 restrictions; zero costs)"
     enabled = [
         name
         for name in ("block_suspended", "block_limit", "t_plus_one")
         if config.rules.get(name, True)
     ]
-    open_limit = "；开盘也使用日终涨跌停字段" if config.rules.get(
+    open_limit = "; apply end-of-day price-limit status at the open too" if config.rules.get(
         "use_eod_limit_for_open", False
     ) else ""
     return (
-        f"\n有效规则: {profile}（开启 {', '.join(enabled) or '无'}"
-        f"；费用按 [costs]{open_limit}）"
+        f"\nEffective rules: {profile} (enabled: {', '.join(enabled) or 'none'}"
+        f"; costs from [costs]{open_limit})"
     )
 
 

@@ -1,7 +1,7 @@
-"""中证1000综合分前20%等权策略。
+"""CSI 1000 top-20% equal-weight strategy based on combined scores.
 
-因子权重仍由最大化 IC_IR / 最大化 IC 生成；本脚本只替换最后的股票权重层。
-在 VS Code 终端直接运行：``uv run python run_top20_equal.py``。
+Use max_ic_ir / max_ic factor weights and replace only the final stock-weight layer.
+Run from the VS Code terminal: ``uv run python run_top20_equal.py``.
 """
 
 from __future__ import annotations
@@ -20,13 +20,13 @@ PORTFOLIO_PLUGIN = "ashare_lab.example_plugins:top_twenty_percent"
 
 
 def main() -> None:
-    parser = argparse.ArgumentParser(description="综合分前20%的股票等权回测")
+    parser = argparse.ArgumentParser(description="Equal-weight backtest for the top-scoring 20% of stocks")
     parser.add_argument("--config", default=DEFAULT_CONFIG)
     parser.add_argument(
         "--combination",
         choices=["both", "max_ic_ir", "max_ic"],
         default="both",
-        help="因子合成方法；默认两种都跑",
+        help="Factor combination method; defaults to running both",
     )
     parser.add_argument("--backtest-start", default="2020-11-01")
     parser.add_argument("--end", default="2026-05-27")
@@ -62,22 +62,22 @@ def main() -> None:
         )
         active = result.summary["active"]
         print(
-            f"\n{method}: 累计超额 "
-            f"{active['total_excess_return']:.2%}，"
-            f"信息比率 {active['information_ratio']:.3f}"
+            f"\n{method}: total excess return "
+            f"{active['total_excess_return']:.2%}, "
+            f"information ratio {active['information_ratio']:.3f}"
         )
-        print(f"结果目录：{result.output_directory}")
+        print(f"Output directory: {result.output_directory}")
 
     comparison = yearly_results[0]
     for yearly in yearly_results[1:]:
         comparison = comparison.join(yearly, on="year", how="full", coalesce=True)
-    print("\n逐年超额收益：")
+    print("\nAnnual excess returns:")
     print(
         comparison.sort("year").with_columns(
             pl.exclude("year").mul(100).round(2)
         )
     )
-    print("数值单位：%")
+    print("Values in percent (%)")
 
 
 if __name__ == "__main__":

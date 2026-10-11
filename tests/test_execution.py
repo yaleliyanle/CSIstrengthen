@@ -95,7 +95,7 @@ def test_same_close_and_next_open_are_different_and_skip_weekend() -> None:
     )
 
     weekend_signal = targets.with_columns(pl.lit(date(2023, 8, 26)).alias("signal_date"))
-    with pytest.raises(ValueError, match="不是 market 中的交易日"):
+    with pytest.raises(ValueError, match="is not a trading day in market"):
         run_execution(market, weekend_signal, config=_config(price="next_open"))
 
 
@@ -143,7 +143,7 @@ def test_suspension_missing_prices_and_limits_block_both_sides() -> None:
         .get_column("stock")
         .to_list()
     )
-    assert held == {"A", "B", "F"}  # 三笔拒单的旧持仓原样保留
+    assert held == {"A", "B", "F"}  # Keep existing positions unchanged after the three rejected orders
 
 
 @pytest.mark.parametrize("status", ["XD", "XR", "DR", "N"])
@@ -238,7 +238,7 @@ def test_raw_weights_above_one_can_be_kept_without_negative_cash() -> None:
         }
     )
 
-    with pytest.raises(ValueError, match="超过 1"):
+    with pytest.raises(ValueError, match="exceeding 1"):
         run_execution(market, targets, config=_config(), cost_model=ZERO_COST)
 
     result = run_execution(
@@ -325,7 +325,7 @@ def test_t_plus_one_locks_today_buys_but_releases_next_day() -> None:
             "target_weight": [0.5, 0.5],
         }
     )
-    with pytest.raises(ValueError, match="同一成交日只能有一个目标组合"):
+    with pytest.raises(ValueError, match="Only one target portfolio per execution date"):
         run_execution(market, duplicate, config=_config(), cost_model=ZERO_COST)
 
 
@@ -336,7 +336,7 @@ def test_minimal_standard_and_custom_profiles_are_explicit() -> None:
             _row(day, "HALT", status="停牌"),
             _row(day, "UP", limit=1),
         ]
-    ).rename({"raw_open": "open", "raw_close": "close"})  # 两套原价字段均兼容
+    ).rename({"raw_open": "open", "raw_close": "close"})  # Both raw-price field conventions are supported
     targets = pl.DataFrame(
         {"date": [day, day], "stock": ["HALT", "UP"], "target_weight": [0.5, 0.5]}
     )
@@ -348,7 +348,7 @@ def test_minimal_standard_and_custom_profiles_are_explicit() -> None:
         market,
         targets,
         config=_config(profile="minimal"),
-        cost_model=expensive,  # minimal 明确忽略所有费用
+        cost_model=expensive,  # minimal explicitly ignores all costs
     )
     standard = run_execution(
         market,

@@ -93,7 +93,7 @@ def test_index_snapshots_expand_strictly_backward_without_future_members(tmp_pat
     assert set(march["stock"]) == {"B.SH", "C.BJ"}
     assert march["snapshot_date"].unique().to_list() == [date(2024, 2, 29)]
 
-    with pytest.raises(ValueError, match="没有更早"):
+    with pytest.raises(ValueError, match="no constituent snapshot on or before"):
         catalog.index_members([date(2024, 1, 1)], index="IDX")
 
 

@@ -82,6 +82,6 @@ def test_duckdb_batches_and_lags_on_the_full_trading_grid(tmp_path):
         end=date(2024, 1, 4),
     )
     rows = {row["stock"]: row for row in lagged.to_dicts()}
-    assert rows["A.SZ"]["factor_a"] is None  # 1月3日无记录，但仍算一个交易日
+    assert rows["A.SZ"]["factor_a"] is None  # January 3 has no record but still counts as a trading day
     assert rows["B.SH"]["factor_a"] == 20.0
     assert rows["A.SZ"]["factor_b"] == 4.0

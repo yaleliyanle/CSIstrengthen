@@ -1,7 +1,7 @@
-"""A 股撮合循环。
+"""A-share execution loop.
 
-输入校验和费用规则分别在 ``execution_inputs.py``、``costs.py``。这里保留纯粹的
-“逐日估值 → 先卖 → 后买 → 记账”流程，便于定位和修改成交逻辑。
+Input validation and costs live in ``execution_inputs.py`` and ``costs.py``. This module contains
+the daily valuation -> sell -> buy -> accounting flow for easy execution-logic changes.
 """
 
 from __future__ import annotations
@@ -42,7 +42,7 @@ def run_engine(
     tradability_rule: TradabilityRule | Any | None,
     lot_rounder: LotRounder,
 ) -> BacktestResult:
-    """运行已验证、已数组化的撮合输入。"""
+    """Run execution with validated inputs converted to arrays."""
 
     return _Engine(
         panel, targets, config, costs, tradability_rule, lot_rounder
@@ -67,7 +67,7 @@ class _Engine:
         self.lot_rounder = lot_rounder
         size = len(panel.stocks)
         self.cash = config.initial_cash
-        self.shares = np.zeros(size, dtype=np.float64)  # 复权股数
+        self.shares = np.zeros(size, dtype=np.float64)  # Adjusted share quantities
         self.bought_today = np.zeros(size, dtype=np.float64)
         self.last_close = np.full(size, np.nan, dtype=np.float64)
         self.nav_rows: list[dict[str, Any]] = []
@@ -96,7 +96,7 @@ class _Engine:
             closes = day_market["close_rows"]
             valid_close = _valid_price(closes)
             self.last_close[ids[valid_close]] = closes[valid_close]
-            # 开盘成交但当日收盘缺失时，至少按成交价估值。
+            # If the closing price is missing after an opening trade, value at least at the execution price.
             missing_mark = (self.shares > 0) & ~_valid_price(self.last_close)
             self.last_close[missing_mark] = day_market["adjusted"][missing_mark]
 
@@ -209,7 +209,7 @@ class _Engine:
                 buys.append(_BuyOrder(target, stock_id, difference))
 
         traded_value = fees = 0.0
-        for stock_id, target, requested in sells:  # 卖出永远先于买入
+        for stock_id, target, requested in sells:  # Always sell before buying
             gross, cost = self._sell(day, target, stock_id, requested, market)
             traded_value += gross
             fees += cost
@@ -371,7 +371,7 @@ class _Engine:
         if -1e-7 < self.cash < 0:
             self.cash = 0.0
         if self.cash < 0:
-            raise RuntimeError("现金约束失效：成交后现金为负")
+            raise RuntimeError("Cash constraint failed: cash is negative after execution")
         self.shares[order.stock_id] += adjusted_shares
         self.bought_today[order.stock_id] += adjusted_shares
         self._record_trade(
@@ -416,9 +416,9 @@ class _Engine:
             )
         )
         if not np.isfinite(raw_shares) or raw_shares < 0:
-            raise ValueError("lot_rounder 必须返回非负有限股数")
+            raise ValueError("lot_rounder must return a nonnegative finite share quantity")
         if raw_shares > requested_raw_shares * (1.0 + 1e-10) + 1e-9:
-            raise ValueError("lot_rounder 不得把订单向上取整")
+            raise ValueError("lot_rounder must not round an order up")
         gross = raw_shares * raw_price
         return raw_shares, gross / adjusted_price, gross
 
@@ -434,7 +434,7 @@ class _Engine:
             return "suspended"
 
         limit = market["limit"][stock_id]
-        # limit_status 是日终字段。next_open 默认不使用成交日的收盘结果。
+        # limit_status is an end-of-day field. next_open ignores execution-day closing status by default.
         use_limit = self.config.price == "same_close" or bool(
             self.config.use_eod_limit_for_open
         )
@@ -531,7 +531,7 @@ class _Engine:
 
 
 def _sellable_shares(held: float, bought_today: float, enabled: bool) -> float:
-    """T+1 的唯一状态口：开启时当日买入部分不可卖。"""
+    """Single T+1 state interface: when enabled, shares bought today cannot be sold today."""
 
     return max(held - bought_today, 0.0) if enabled else max(held, 0.0)
 

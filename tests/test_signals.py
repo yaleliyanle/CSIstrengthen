@@ -40,7 +40,7 @@ def test_availability_lag_is_applied_before_rebalance_filter() -> None:
         2.0,
         3.0,
     ]
-    # 先 lag 再筛调仓日，所以得到上一交易日，而非上一调仓日。
+    # Apply lags before selecting rebalance dates to obtain the previous trading day, not the previous rebalance.
     selected = lagged.filter(pl.col("date") == days[3]).sort("stock")
     assert selected["raw"].to_list() == [3.0, 30.0]
 
@@ -217,7 +217,7 @@ def test_forward_returns_use_global_calendar_not_stock_row_shift() -> None:
     b0 = same_close.filter(
         (pl.col("stock") == "B") & (pl.col("date") == days[0])
     )["forward_1d"][0]
-    assert b0 is None  # B 缺少真正的 d+1 行，不能偷用 d+2。
+    assert b0 is None  # B has no actual d+1 row; do not substitute d+2.
 
     next_open = forward_returns(market, [1], "next_open")
     a0_open = next_open.filter(
@@ -273,7 +273,7 @@ def test_hac_lags_follow_signal_frequency_and_holding_period() -> None:
     assert _overlap_lags(20, weekly, _days(30), 52, 252) == 3
     assert _overlap_lags(20, monthly, _days(50), 12, 252) == 0
 
-    # 节后两个周频信号只隔 4 个真实交易日，5 日标签会机械重叠。
+    # Two weekly signals after the holiday are only four trading days apart, so five-day labels overlap.
     irregular_calendar = _days(20)
     irregular = pl.Series(
         "date", [irregular_calendar[index] for index in [0, 5, 10, 14]]

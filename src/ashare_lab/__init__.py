@@ -1,4 +1,4 @@
-"""A 股因子研究与回测工具箱。"""
+"""A-share factor research and backtesting toolkit."""
 
 from .settings import Config, FactorSpec, load_config
 

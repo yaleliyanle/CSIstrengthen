@@ -9,24 +9,25 @@ from ashare_lab.plugins import import_callable
 from ashare_lab.settings import load_config
 
 
+# Keep the local workbook name and its original Date/Stock Code/Weight headers.
 EXCEL_FILE = "中证1000成分股.xlsx"
 CONFIG_FILE = "configs/csi1000.toml"
 OUTPUT_DIR = Path("outputs/csi1000_excel_weights")
 
 
-# 1. 读取 TOML：回测区间、成交方式、规则、费用都由它控制
+# 1. Load TOML: it controls the backtest interval, execution, rules, and costs
 config = load_config(CONFIG_FILE)
 
 
-# 2. 读取 Excel
+# 2. Read Excel
 weights = pl.read_excel(
     EXCEL_FILE,
     sheet_name="Sheet1",
     engine="calamine",
 )
 
-# 正常情况下 Excel 日期会被识别为 Date。
-# 如果读取成 Excel 序号，则转换为真实日期。
+# Excel dates are normally recognized as Date.
+# Convert Excel serial numbers to actual dates if needed.
 if weights.schema["日期"].is_numeric():
     date_expression = (
         pl.date(1899, 12, 30)
@@ -41,18 +42,18 @@ weights = weights.select(
     pl.col("权重").cast(pl.Float64).alias("target_weight"),
 )
 
-# 只使用 TOML 规定的研究区间
+# Use only the research interval specified in TOML
 weights = weights.filter(
     pl.col("date").is_between(config.start, config.end)
 )
 
 if weights.is_empty():
-    raise ValueError("TOML 的研究区间内没有 Excel 权重")
+    raise ValueError("No Excel weights within the TOML research interval")
 
-# 保留 Excel 中的原始权重，不做归一化。
+# Preserve the original Excel weights without normalization.
 
 
-# 3. 读取这些股票的行情和涨跌停状态
+# 3. Read market data and price-limit status for these stocks
 catalog, _ = make_catalogs(config)
 stocks = weights["stock"].unique().to_list()
 
@@ -79,8 +80,8 @@ market = (
 )
 
 
-# 4. 删除区间内无法成交的调仓日
-# next_open 要求信号日后还有一个交易日
+# 4. Drop rebalance dates that cannot execute within the interval
+# next_open requires a trading day after the signal date
 calendar = market["date"].unique().sort().to_list()
 
 if config.execution["price"] == "next_open":
@@ -93,10 +94,10 @@ weights = weights.filter(
 )
 
 if weights.is_empty():
-    raise ValueError("区间内没有可以完成成交的调仓日")
+    raise ValueError("No executable rebalance dates within the interval")
 
 
-# 5. 加载可选的整手插件
+# 5. Load the optional board-lot plugin
 lot_method = config.execution.get("lot_rounder")
 lot_rounder = (
     import_callable(str(lot_method))
@@ -105,7 +106,7 @@ lot_rounder = (
 )
 
 
-# 6. 运行撮合
+# 6. Run execution
 result = run_execution(
     market,
     weights,
@@ -115,10 +116,10 @@ result = run_execution(
 )
 
 
-# 7. 生成净值并保存
+# 7. Generate and save NAV
 OUTPUT_DIR.mkdir(parents=True, exist_ok=True)
 
-# 旧版本保存的是归一化权重，删除它以免和当前原始权重文件混淆。
+# Remove legacy normalized weights to avoid confusion with the current raw-weight output.
 legacy_targets = OUTPUT_DIR / "normalized_targets.parquet"
 if legacy_targets.exists():
     legacy_targets.unlink()
@@ -144,14 +145,14 @@ print(
     ).tail(10)
 )
 
-print(f"\n调仓日数量：{weights['date'].n_unique()}")
+print(f"\nNumber of rebalance dates: {weights['date'].n_unique()}")
 weight_sums = weights.group_by("date").agg(pl.col("target_weight").sum())
 print(
-    "原始权重合计范围："
+    "Range of total raw weights: "
     f"{weight_sums['target_weight'].min():.6f} ~ "
     f"{weight_sums['target_weight'].max():.6f}"
 )
-print(f"成交笔数：{result.trades.height}")
-print(f"拒单笔数：{result.rejections.height}")
-print(f"最终净值：{nav['net_value'][-1]:.6f}")
-print(f"结果目录：{OUTPUT_DIR}")
+print(f"Number of trades: {result.trades.height}")
+print(f"Number of rejected orders: {result.rejections.height}")
+print(f"Final NAV: {nav['net_value'][-1]:.6f}")
+print(f"Output directory: {OUTPUT_DIR}")

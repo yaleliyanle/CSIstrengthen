@@ -1,5 +1,5 @@
-# 多因子开发配置：训练历史用于滚动估计，净值只观察验证区间。
-# 比较并冻结方法后，再用命令行显式打开样本外测试区间。
+# Multifactor development configuration: estimate on training history and evaluate NAV over validation only.
+# Compare and freeze methods before explicitly enabling the out-of-sample interval via the CLI.
 
 [data]
 engine = "duckdb"
@@ -13,11 +13,11 @@ factor_root = "factor"
 
 [research]
 start = "2014-10-31"
-end = "2020-10-31"              # 默认只到验证集末日
+end = "2020-10-31"              # Defaults to the last validation date
 benchmark = "000852.SH"
 membership_lag = 0
 
-# factor_file 才是实际使用的冻结清单；这里仅是配置校验所需的备用因子。
+# factor_file supplies the frozen factor list; the entry here is a fallback for configuration validation.
 [[factors]]
 source = "基本面因子"
 name = "ep_qr_sud"
@@ -32,22 +32,22 @@ missing = "renormalize"
 min_factor_count = 1
 
 [multifactor]
-method = "max_ic_ir"             # equal / max_ic_ir / max_ic / 模块:函数
+method = "max_ic_ir"             # equal / max_ic_ir / max_ic / module:function
 factor_file = "configs/csi1000_selected_32.csv"
-estimation_universe = "all_a"    # 在全A上估计 IC 和风险矩阵
+estimation_universe = "all_a"    # Estimate IC and risk matrices on all A-shares
 lookback_periods = 12
-group_by_source = true            # 类别内优化，类别间等权
-exposure_shrinkage = 0.1          # max_ic 的暴露相关矩阵收缩强度
+group_by_source = true            # Optimize within categories and weight categories equally
+exposure_shrinkage = 0.1          # Exposure correlation-matrix shrinkage for max_ic
 eigenvalue_floor = 1e-8
 optimizer_tolerance = 1e-9
 optimizer_max_iterations = 1000
-backtest_start = "2019-05-01"    # 默认只观察验证区间净值
+backtest_start = "2019-05-01"    # Defaults to evaluating NAV over validation only
 
 [schedule]
 method = "monthly"                # weekly / monthly
 
 [portfolio]
-method = "benchmark_tilt"         # 可替换为 top_n_equal / top_n_benchmark / 模块:函数
+method = "benchmark_tilt"         # Replace with top_n_equal / top_n_benchmark / module:function
 empty_signal = "error"
 top_n = 100
 tilt = 0.35
@@ -68,9 +68,9 @@ use_eod_limit_for_open = false
 t_plus_one = true
 
 [costs]
-commission_rate = 0.001            # 买入、卖出各扣 0.1%
+commission_rate = 0.001            # Charge 0.1% on each buy and sell
 minimum_commission = 0.0
-stamp_tax = "none"                 # 千一已作为统一单边费率，不再重复收税
+stamp_tax = "none"                 # The uniform 0.1% one-way rate already covers costs; do not charge stamp duty again
 transfer_fee = "none"
 
 [analytics]

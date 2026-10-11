@@ -123,6 +123,7 @@ class DataCatalog:
     """Access the four datasets in ``a share`` with canonical field names."""
 
     root: str | Path = Path("a share")
+    # Original local dataset filenames are part of the data interface.
     market_name: str = "A股行情数据.parquet"
     valuation_name: str = "A股估值数据.parquet"
     index_name: str = "指数成分股.parquet"
@@ -150,7 +151,7 @@ class DataCatalog:
         raw_names = frame.collect_schema().names()
         for key in ("trade_dt", "s_info_windcode"):
             if key not in raw_names:
-                raise ValueError(f"{path.name} 缺少键字段 {key!r}")
+                raise ValueError(f"{path.name} is missing key field {key!r}")
 
         canonical = {raw: aliases.get(raw, raw) for raw in raw_names}
         reverse = {name: raw for raw, name in canonical.items()}
@@ -162,7 +163,7 @@ class DataCatalog:
         )
         unknown = [x for x in wanted if x not in reverse]
         if unknown:
-            raise KeyError(f"未知字段 {unknown}; 可用字段: {available}")
+            raise KeyError(f"Unknown fields {unknown}; available fields: {available}")
 
         raw_values = [reverse[x] for x in wanted]
         frame = frame.select(["trade_dt", "s_info_windcode", *raw_values])
@@ -255,7 +256,7 @@ class DataCatalog:
         )
         if members.is_empty():
             raise ValueError(
-                f"{index} 在 {requested_dates[-1]} 前没有更早的成分股快照"
+                f"{index} has no constituent snapshot on or before {requested_dates[-1]}"
             )
 
         snapshots = members.select("snapshot_date").unique().sort("snapshot_date")
@@ -267,7 +268,7 @@ class DataCatalog:
         )
         missing = mapping.filter(pl.col("snapshot_date").is_null())["date"].to_list()
         if strict and missing:
-            raise ValueError(f"这些日期没有更早的指数快照: {missing}")
+            raise ValueError(f"No earlier index snapshots for these dates: {missing}")
 
         return (
             mapping.drop_nulls("snapshot_date")
@@ -294,7 +295,7 @@ class DataCatalog:
         schema_names = pl.scan_parquet(path).collect_schema().names()
         missing = [stock for stock in stocks if stock not in schema_names]
         if strict and missing:
-            raise KeyError(f"行业表没有这些股票列: {missing}")
+            raise KeyError(f"The industry table is missing stock columns: {missing}")
         stocks = [stock for stock in stocks if stock in schema_names]
         if not stocks:
             return pl.DataFrame(
@@ -360,14 +361,14 @@ class FactorCatalog:
             source, year = path.parent.name, int(match.group(1))
             files = self._files.setdefault(source, {})
             if year in files:
-                raise ValueError(f"{source} 的 {year} 年有多个因子文件")
+                raise ValueError(f"{source} has multiple factor files for {year}")
             files[year] = path
 
         for source, files in self._files.items():
             schema = pl.scan_parquet(files[min(files)]).collect_schema()
             missing = {"trade_dt", "s_info_windcode"} - set(schema.names())
             if missing:
-                raise ValueError(f"{source} 缺少键字段: {sorted(missing)}")
+                raise ValueError(f"{source} is missing key fields: {sorted(missing)}")
             self._schemas[source] = schema
 
     @property
@@ -376,7 +377,7 @@ class FactorCatalog:
 
     def _check_source(self, source: str) -> None:
         if source not in self._files:
-            raise KeyError(f"未知因子源 {source!r}; 可用: {list(self.sources)}")
+            raise KeyError(f"Unknown factor source {source!r}; available: {list(self.sources)}")
 
     def factor_names(self, source: str) -> tuple[str, ...]:
         self._check_source(source)
@@ -434,14 +435,14 @@ class FactorCatalog:
             wanted = sorted(set(years))
             missing = [year for year in wanted if year not in files]
             if missing:
-                raise FileNotFoundError(f"{source} 缺少年度文件: {missing}")
+                raise FileNotFoundError(f"{source} is missing annual files: {missing}")
         else:
             first = _as_date(start).year if start is not None else min(files)
             last = _as_date(end).year if end is not None else max(files)
             wanted = [year for year in sorted(files) if first <= year <= last]
         paths = [files[year] for year in wanted]
         if not paths:
-            raise FileNotFoundError(f"{source} 在请求日期内没有年度文件")
+            raise FileNotFoundError(f"{source} has no annual files within the requested dates")
         return paths
 
     def scan(
@@ -459,7 +460,7 @@ class FactorCatalog:
         available = set(self.factor_names(source))
         unknown = [name for name in names if name not in available]
         if unknown:
-            raise KeyError(f"{source} 没有因子 {unknown}")
+            raise KeyError(f"{source} has no factors {unknown}")
 
         paths = self._paths(source, start, end, years)
         frame = pl.scan_parquet([str(path) for path in paths]).select(
@@ -509,22 +510,22 @@ class FactorCatalog:
             names = [names] if isinstance(names, str) else _unique(names)
             overlap = set(requested_names) & set(names)
             if overlap:
-                raise ValueError(f"多源请求含重名因子: {sorted(overlap)}")
+                raise ValueError(f"Multi-source requests contain duplicate factor names: {sorted(overlap)}")
             requested_names.extend(names)
             scans.append(self.scan(source, names, start, end, stocks))
 
         if not scans and universe is None:
-            raise ValueError("requests 不能为空，除非提供 universe")
+            raise ValueError("requests must not be empty unless universe is provided")
 
         if universe is not None:
             base = universe.lazy() if isinstance(universe, pl.DataFrame) else universe
             base_names = base.collect_schema().names()
             missing = set(KEYS) - set(base_names)
             if missing:
-                raise ValueError(f"universe 缺少键字段: {sorted(missing)}")
+                raise ValueError(f"universe is missing key fields: {sorted(missing)}")
             collision = set(base_names) & set(requested_names)
             if collision:
-                raise ValueError(f"universe 已有同名因子: {sorted(collision)}")
+                raise ValueError(f"universe already contains factors with the same names: {sorted(collision)}")
             base = _filter_canonical(base, start, end, stocks)
         else:
             base = pl.concat([scan.select(KEYS) for scan in scans]).unique()

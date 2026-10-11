@@ -1,4 +1,4 @@
-"""回测图表；使用标准 SVG，不增加沉重的绘图库依赖。"""
+"""Backtest charts using standard SVG without a heavyweight plotting dependency."""
 
 from __future__ import annotations
 
@@ -18,7 +18,7 @@ def write_backtest_charts(
     directory: str | Path,
     cfg: Mapping[str, Any] | Any,
 ) -> list[Path]:
-    """生成净值和回撤图；可在 ``[charts]`` 关闭或替换整套方法。"""
+    """Generate NAV and drawdown charts; disable or replace the method in ``[charts]``."""
 
     options = _options(cfg)
     if not bool(options.get("enabled", True)):
@@ -54,7 +54,7 @@ def _series(nav: pl.DataFrame) -> dict[str, str]:
     }
     found = {label: column for label, column in candidates.items() if column in nav.columns}
     if not found or "date" not in nav.columns:
-        raise ValueError("画图需要 date 和净值列")
+        raise ValueError("Charts require date and NAV columns")
     return found
 
 
@@ -68,13 +68,13 @@ def _write_svg(
     height: int,
 ) -> None:
     if not dates:
-        raise ValueError("没有净值数据可画图")
+        raise ValueError("No NAV data available for plotting")
     left, right, top, bottom = 72, 72, 48, 80
     plot_width = max(width - left - right, 1)
     plot_height = max(height - top - bottom, 1)
     finite = np.concatenate([values[np.isfinite(values)] for values in series.values()])
     if not len(finite):
-        raise ValueError("净值数据没有有限数值")
+        raise ValueError("NAV data contains no finite values")
     low, high = float(finite.min()), float(finite.max())
     padding = max((high - low) * 0.06, 0.01)
     low, high = low - padding, high + padding
@@ -150,7 +150,7 @@ def _options(cfg: Mapping[str, Any] | Any) -> Mapping[str, Any]:
     if isinstance(cfg, Mapping):
         value = cfg.get("charts")
         return value if isinstance(value, Mapping) else cfg
-    raise TypeError("cfg 应为 Config 或 dict")
+    raise TypeError("cfg must be Config or dict")
 
 
 __all__ = ["write_backtest_charts"]

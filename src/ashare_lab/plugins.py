@@ -1,4 +1,4 @@
-"""很小的插件入口：配置写 ``模块:函数`` 即可使用自定义方法。"""
+"""Minimal plugin entry point: configure ``module:function`` to use custom methods."""
 
 from __future__ import annotations
 
@@ -8,20 +8,20 @@ from typing import Any
 
 
 def import_callable(path: str) -> Callable[..., Any]:
-    """载入 ``package.module:function``，错误信息保持直白。"""
+    """Load ``package.module:function`` with clear error messages."""
     if ":" not in path:
-        raise ValueError(f"自定义方法应写成 '模块:函数'，收到: {path!r}")
+        raise ValueError(f"Custom methods must use 'module:function'; received: {path!r}")
     module_name, function_name = path.split(":", 1)
     function = getattr(import_module(module_name), function_name, None)
     if not callable(function):
-        raise ValueError(f"{path!r} 不是可调用函数")
+        raise ValueError(f"{path!r} is not callable")
     return function
 
 
 def resolve_method(
     name: str, builtins: Mapping[str, Callable[..., Any]]
 ) -> Callable[..., Any]:
-    """先查内置短名称，再查 ``模块:函数`` 插件。"""
+    """Resolve a built-in short name first, then a ``module:function`` plugin."""
     if name in builtins:
         return builtins[name]
     return import_callable(name)

@@ -1,4 +1,4 @@
-"""前瞻收益与单因子检验。"""
+"""Forward returns and single-factor diagnostics."""
 
 from __future__ import annotations
 
@@ -20,7 +20,7 @@ KEYS = ["date", "stock"]
 
 @dataclass(slots=True)
 class FactorReport:
-    """一个因子的摘要、逐日 IC 和分位数组合结果。"""
+    """Summary, daily IC, and quantile-portfolio results for one factor."""
 
     factor: str
     forward_return: str
@@ -49,7 +49,7 @@ class FactorReport:
         return target
 
     def write_csv(self, directory: str | Path) -> dict[str, Path]:
-        """把四张表写进目录，文件名前缀取自因子名。"""
+        """Write four tables to a directory, using the factor name as the filename prefix."""
         folder = Path(directory)
         folder.mkdir(parents=True, exist_ok=True)
         stem = _safe_name(f"{self.factor}__{self.forward_return}")
@@ -71,23 +71,23 @@ def forward_returns(
     horizons: Sequence[int],
     execution: str,
 ) -> pl.DataFrame:
-    """按全市场交易日历计算收益，避免个股缺行造成 shift 错位。
+    """Calculate returns on the market trading calendar to avoid shifts caused by missing stock rows.
 
-    ``same_close`` 的 h 日收益是 d 收盘到 d+h 收盘；``next_open`` 是
-    d+1 开盘建仓，到其后 h 个交易日的开盘平仓。因此 next_open 的 h=1
-    为 d+1 open → d+2 open。
+    ``same_close`` measures h-day returns from close d to close d+h; ``next_open`` enters
+    at open d+1 and exits at the open h trading days later. Thus next_open with h=1
+    means d+1 open -> d+2 open.
     """
     if execution not in {"same_close", "next_open"}:
-        raise ValueError("execution 只能是 same_close 或 next_open")
+        raise ValueError("execution must be same_close or next_open")
     periods = [int(value) for value in horizons]
     if not periods or any(value < 1 for value in periods):
-        raise ValueError("horizons 至少包含一个正整数")
+        raise ValueError("horizons must contain at least one positive integer")
     if len(periods) != len(set(periods)):
-        raise ValueError("horizons 不能重复")
+        raise ValueError("horizons must not contain duplicates")
 
     raw_price_col = "close" if execution == "same_close" else "open"
     adjusted_price_col = f"adj_{raw_price_col}"
-    # 收益默认使用复权价；toy/自定义数据只有 open/close 时仍可直接使用。
+    # Use adjusted prices by default; toy/custom data can supply only open/close.
     price_col = (
         adjusted_price_col if adjusted_price_col in market.columns else raw_price_col
     )
@@ -148,16 +148,16 @@ def analyze_factor(
     min_obs: int | None = None,
     calendar: Sequence[date] | None = None,
 ) -> FactorReport:
-    """计算覆盖率、IC/RankIC、ICIR、t 值、分位收益和换手率。"""
+    """Compute coverage, IC/RankIC, ICIR, t-statistics, quantile returns, and turnover."""
     _require_columns(panel, [*KEYS, factor_col, return_col])
     options = _analytics_options(cfg)
     groups = int(options.get("quantiles", 5) if quantiles is None else quantiles)
     annual = int(options.get("annual_days", 252) if annual_days is None else annual_days)
     minimum = int(options.get("min_obs", 3) if min_obs is None else min_obs)
     if groups < 2:
-        raise ValueError("quantiles 必须至少为 2")
+        raise ValueError("quantiles must be at least 2")
     if annual < 1 or minimum < 2:
-        raise ValueError("annual_days 必须为正数，min_obs 必须至少为 2")
+        raise ValueError("annual_days must be positive and min_obs must be at least 2")
 
     raw_factor = pl.col(factor_col).cast(pl.Float64, strict=False)
     raw_return = pl.col(return_col).cast(pl.Float64, strict=False)
@@ -248,7 +248,7 @@ def analyze_factor(
         else int(configured_hac)
     )
     if hac_lags < 0:
-        raise ValueError("analytics.hac_lags 不能为负数")
+        raise ValueError("analytics.hac_lags must be nonnegative")
     quantile_summary = _summarize_quantiles(
         quantile_returns, return_periods, hac_lags
     )
@@ -451,7 +451,7 @@ def _series_stats(series: pl.Series) -> dict[str, float | int | None]:
 def _newey_west_stats(
     series: pl.Series, lags: int
 ) -> dict[str, float | None]:
-    """Bartlett 权重 HAC；重叠前瞻收益时避免把样本当作独立。"""
+    """Bartlett-weighted HAC accounts for dependence in overlapping forward returns."""
     values = np.asarray(series.drop_nulls().to_list(), dtype=float)
     values = values[np.isfinite(values)]
     count = int(values.size)
@@ -489,7 +489,7 @@ def _signal_periods_per_year(
     annual_days: int,
     calendar: Sequence[date] | None = None,
 ) -> float:
-    """从调仓日间隔识别日/周/月频，避免月频 ICIR 误乘 sqrt(252)。"""
+    """Infer daily/weekly/monthly frequency from rebalance gaps instead of scaling monthly ICIR by sqrt(252)."""
     values = sorted(dates.drop_nulls().to_list())
     if len(values) < 2:
         return float(annual_days)
@@ -507,7 +507,7 @@ def _overlap_lags(
     signal_periods: float,
     annual_days: int,
 ) -> int:
-    """按完整交易日索引找出样本中最大的机械重叠阶数。"""
+    """Find the maximum mechanical overlap order using complete trading-day indices."""
     values = sorted(dates.drop_nulls().to_list())
     if len(values) < 2:
         gap = annual_days / max(signal_periods, 1e-12)
@@ -546,13 +546,13 @@ def _analytics_options(cfg: Mapping[str, Any] | Any | None) -> Mapping[str, Any]
     if isinstance(cfg, Mapping):
         nested = cfg.get("analytics")
         return nested if isinstance(nested, Mapping) else cfg
-    raise TypeError("cfg 应为 Config、dict 或 None")
+    raise TypeError("cfg must be Config, dict, or None")
 
 
 def _require_columns(frame: pl.DataFrame, columns: Sequence[str]) -> None:
     missing = [column for column in columns if column not in frame.columns]
     if missing:
-        raise ValueError(f"缺少列: {', '.join(missing)}")
+        raise ValueError(f"Missing columns: {', '.join(missing)}")
 
 
 def _safe_name(value: str) -> str:

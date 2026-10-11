@@ -1,8 +1,8 @@
-"""滚动多因子合成。
+"""Rolling multifactor combination.
 
-内置方法只决定怎样把多个已预处理因子合成 ``score``。股票池、Top N、
-成交规则和费用仍由原有模块负责。自定义非线性/机器学习方法可以替换本模块
-的整套打分入口，而不需要修改回测引擎。
+Built-in methods combine preprocessed factors into ``score``. The stock universe, Top N,
+execution rules, and costs remain in their respective modules. Custom nonlinear or machine-learning
+models can replace the scoring entry point without changing the backtest engine.
 """
 
 from __future__ import annotations
@@ -23,7 +23,7 @@ from .settings import FactorSpec
 
 @dataclass(frozen=True)
 class MultiFactorScores:
-    """动态合成的标准输出。"""
+    """Standard output of dynamic factor combination."""
 
     method: str
     scores: pl.DataFrame
@@ -38,7 +38,7 @@ def build_multifactor_scores(
     specs: Sequence[FactorSpec],
     cfg: Mapping[str, Any] | Any,
 ) -> MultiFactorScores:
-    """用全A历史估计模型，并在目标指数股票池上生成综合分。"""
+    """Estimate models on all A-share history and score the target index universe."""
 
     options = _options(cfg)
     method = str(options.get("method", "max_ic_ir"))
@@ -54,11 +54,11 @@ def build_multifactor_scores(
                 method, result, pl.DataFrame(), pl.DataFrame(), pl.DataFrame()
             )
         raise TypeError(
-            "自定义 multifactor.method 必须返回 MultiFactorScores 或带 "
-            "date/stock/score 的 Polars DataFrame"
+            "Custom multifactor.method must return MultiFactorScores or a "
+            "Polars DataFrame with date/stock/score"
         )
     if method not in {"equal", "max_ic_ir", "max_ic"}:
-        raise ValueError(f"未知多因子合成方法: {method!r}")
+        raise ValueError(f"Unknown multifactor combination method: {method!r}")
 
     columns = [f"factor__{spec.output_name}" for spec in specs]
     required_history = ["date", "stock", "forward_return", "exit_date", *columns]
@@ -83,7 +83,7 @@ def factor_ic_history(
     *,
     min_observations: int = 30,
 ) -> pl.DataFrame:
-    """计算逐期全A RankIC；方向已由预处理阶段统一。"""
+    """Compute all-A-share RankIC for each period; preprocessing has aligned directions."""
 
     rows: list[pl.DataFrame] = []
     for column in factor_columns:
@@ -128,14 +128,14 @@ def solve_long_only_ratio(
     tolerance: float = 1e-9,
     max_iterations: int = 1000,
 ) -> tuple[np.ndarray, dict[str, Any]]:
-    """最大化 ``w'mu / sqrt(w'Aw)``，约束 ``w>=0, sum(w)=1``。"""
+    """Maximize ``w'mu / sqrt(w'Aw)`` subject to ``w>=0, sum(w)=1``."""
 
     mu = np.asarray(expected_ic, dtype=float).reshape(-1)
     risk = _sanitize_matrix(risk_matrix, eigenvalue_floor)
     if not len(mu) or risk.shape != (len(mu), len(mu)):
-        raise ValueError("预期 IC 与风险矩阵维度不一致")
+        raise ValueError("Expected IC and the risk matrix have incompatible dimensions")
     if not np.isfinite(mu).all():
-        raise ValueError("预期 IC 含非有限值")
+        raise ValueError("Expected IC contains non-finite values")
     if len(mu) == 1:
         predicted_risk = math.sqrt(float(risk[0, 0]))
         return np.array([1.0]), {
@@ -175,7 +175,7 @@ def solve_long_only_ratio(
         if np.isfinite(value) and abs(weight.sum() - 1.0) <= 1e-7:
             candidates.append((value, weight, solved))
     if not candidates:
-        raise RuntimeError("多因子权重优化没有得到可行解")
+        raise RuntimeError("Multifactor weight optimization did not produce a feasible solution")
     value, weight, solved = max(candidates, key=lambda item: item[0])
     predicted_risk = math.sqrt(float(weight @ risk @ weight))
     return weight, {
@@ -204,7 +204,7 @@ def _rolling_linear_scores(
 
     groups: dict[str, list[str]] = {}
     for spec, column in zip(specs, columns, strict=True):
-        group = str(spec.source or "未分类") if group_by_source else "全部因子"
+        group = str(spec.source or "uncategorized") if group_by_source else "all_factors"
         groups.setdefault(group, []).append(column)
 
     pivot = ic_history.pivot(
@@ -335,9 +335,9 @@ def _sanitize_matrix(matrix: np.ndarray, eigenvalue_floor: float) -> np.ndarray:
     if result.ndim == 0:
         result = result.reshape(1, 1)
     if result.ndim != 2 or result.shape[0] != result.shape[1]:
-        raise ValueError("风险矩阵必须是方阵")
+        raise ValueError("The risk matrix must be square")
     if not np.isfinite(result).all():
-        raise ValueError("风险矩阵含非有限值")
+        raise ValueError("The risk matrix contains non-finite values")
     result = (result + result.T) / 2.0
     eigenvalues, eigenvectors = np.linalg.eigh(result)
     scale = max(float(np.max(np.abs(eigenvalues))), 1.0)
@@ -351,13 +351,13 @@ def _options(cfg: Mapping[str, Any] | Any) -> Mapping[str, Any]:
     if isinstance(cfg, Mapping):
         value = cfg.get("multifactor")
         return value if isinstance(value, Mapping) else cfg
-    raise TypeError("cfg 应为 Config 或 dict")
+    raise TypeError("cfg must be Config or dict")
 
 
 def _require(frame: pl.DataFrame, columns: Sequence[str]) -> None:
     missing = [column for column in columns if column not in frame.columns]
     if missing:
-        raise ValueError(f"多因子输入缺少列: {missing}")
+        raise ValueError(f"Multifactor input is missing columns: {missing}")
 
 
 __all__ = [

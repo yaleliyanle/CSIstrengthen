@@ -1,4 +1,4 @@
-"""把数据、信号、组合和撮合接成两条清晰流水线。"""
+"""Connect data, signals, portfolios, and execution in two clear pipelines."""
 
 from __future__ import annotations
 
@@ -52,7 +52,7 @@ class BacktestArtifacts:
 
 
 def make_catalogs(config: Config) -> tuple[Any, Any]:
-    """路径只在这里组装，数据层和策略层不认识彼此。"""
+    """Assemble paths here to keep the data and strategy layers independent."""
     data = config.data
     market = Path(data["market"])
     common = {
@@ -78,7 +78,7 @@ def make_catalogs(config: Config) -> tuple[Any, Any]:
 
 
 def build_research_panel(config: Config) -> ResearchPanel:
-    """构建只含 point-in-time 指数成分和调仓日的因子截面。"""
+    """Build factor cross-sections for point-in-time index constituents and rebalance dates only."""
     catalog, factor_catalog = make_catalogs(config)
     longest_horizon = max(
         max(config.analytics.get("horizons", [1])),
@@ -95,9 +95,9 @@ def build_research_panel(config: Config) -> ResearchPanel:
         day for day in full_calendar if config.start <= day <= config.end
     ]
     if not research_calendar:
-        raise ValueError("请求区间内没有行情交易日")
-    # 周/月/季频必须先看见下一周期，才能确认区间末日是否真的是期末交易日。
-    # daily/every_n_days/自定义插件仍从 research.start 锚定，行为更直观。
+        raise ValueError("No market trading days in the requested interval")
+    # Weekly/monthly/quarterly schedules need the next period to identify the actual period-end trading day.
+    # Anchor daily/every_n_days/custom schedules at research.start for predictable behavior.
     schedule_method = str(config.schedule.get("method", "weekly"))
     schedule_calendar = (
         full_calendar
@@ -110,7 +110,7 @@ def build_research_panel(config: Config) -> ResearchPanel:
         if config.start <= day <= config.end
     ]
     if not signal_dates:
-        raise ValueError("调仓规则没有生成任何日期")
+        raise ValueError("The rebalance rule produced no dates")
 
     members = _members_for_signals(
         catalog,
@@ -129,8 +129,8 @@ def build_research_panel(config: Config) -> ResearchPanel:
 
     max_lag = max(spec.availability_lag for spec in specs)
     factor_start = config.start - timedelta(days=max_lag * 4 + 10)
-    # 以行情交易日键为左表：即使只选深度学习等稀疏因子，lag=1 仍表示
-    # 一个真实交易日，而不是“下一条碰巧存在的因子记录”。
+    # Left-join onto market trading-day keys: even for sparse deep-learning factors, lag=1 means
+    # one actual trading day rather than the next available factor record.
     daily_grid = catalog.market(
         columns=[], start=factor_start, end=config.end, stocks=stocks
     )
@@ -182,7 +182,7 @@ def build_research_panel(config: Config) -> ResearchPanel:
 
 
 def run_factor_research(config: Config) -> list[FactorReport]:
-    """对配置中的每个因子、每个持有期执行单因子检测并落盘。"""
+    """Run and save single-factor diagnostics for every configured factor and holding horizon."""
     research = build_research_panel(config)
     catalog, _ = make_catalogs(config)
     horizons = [int(item) for item in config.analytics["horizons"]]
@@ -218,7 +218,7 @@ def run_factor_research(config: Config) -> list[FactorReport]:
 
 
 def run_factor_selection(config: Config) -> SelectionResult:
-    """在指定研究区间筛选因子，并保存一张易读结果表。"""
+    """Select factors within the research interval and save a readable results table."""
     research = build_research_panel(config)
     catalog, _ = make_catalogs(config)
     horizon = int(config.selection.get("horizon", 20))
@@ -240,7 +240,7 @@ def run_factor_selection(config: Config) -> SelectionResult:
 
 
 def run_factor_validation(config: Config) -> ValidationResult:
-    """运行 IC→Lasso 两层验证；不会读取 test/live 的因子或收益。"""
+    """Run IC-to-Lasso validation without reading test/live factors or returns."""
     train, validation, _, _ = dataset_split(config)
     raw = config.to_dict()
     raw["research"]["start"] = train.start.isoformat()
@@ -279,13 +279,13 @@ def run_factor_validation(config: Config) -> ValidationResult:
 
 
 def run_backtest(config: Config) -> BacktestArtifacts:
-    """运行指数增强组合和无摩擦基准，并输出完整审计文件。"""
+    """Run the index-enhancement portfolio and frictionless benchmark; save full audit outputs."""
     research = build_research_panel(config)
     if config.execution["price"] == "same_close" and not config.execution.get(
         "allow_same_close", False
     ):
         warnings.warn(
-            "same_close 假设因子在当日收盘成交前可得；请确认没有未来函数。",
+            "same_close assumes factors are available before same-day closing execution; verify that there is no look-ahead bias.",
             stacklevel=2,
         )
 
@@ -293,7 +293,7 @@ def run_backtest(config: Config) -> BacktestArtifacts:
         day for day in research.calendar if config.start <= day <= config.end
     ]
     if not backtest_calendar:
-        raise ValueError("请求区间内没有可回测交易日")
+        raise ValueError("No trading days available for backtesting in the requested interval")
     executable_signals = _executable_signals(
         research.signal_dates,
         research.calendar,
@@ -301,7 +301,7 @@ def run_backtest(config: Config) -> BacktestArtifacts:
         str(config.execution["price"]),
     )
     if not executable_signals:
-        raise ValueError("区间内没有能完成成交的调仓日")
+        raise ValueError("No executable rebalance dates in the interval")
     signal_panel = research.data.filter(pl.col("date").is_in(executable_signals))
     targets = _apply_empty_signal_policy(
         build_targets(signal_panel, config.portfolio),
@@ -422,13 +422,13 @@ def _resolve_factor_sources(
     for spec in specs:
         if spec.source:
             if spec.name not in catalog.factor_names(spec.source):
-                raise KeyError(f"{spec.source} 没有因子 {spec.name!r}")
+                raise KeyError(f"{spec.source} has no factor {spec.name!r}")
             result.append(spec)
             continue
         sources = listing.filter(pl.col("name") == spec.name)["source"].to_list()
         if len(sources) != 1:
             raise ValueError(
-                f"因子 {spec.name!r} 匹配到 {sources}；请在配置填写 source"
+                f"Factor {spec.name!r} matches {sources}; specify source in the configuration"
             )
         result.append(replace(spec, source=sources[0]))
     return tuple(result)
@@ -450,7 +450,7 @@ def _members_for_signals(
 ) -> pl.DataFrame:
     positions = {day: index for index, day in enumerate(calendar)}
     if any(positions[day] < lag for day in signals):
-        raise ValueError("交易日历不足以应用 research.membership_lag")
+        raise ValueError("Insufficient trading calendar to apply research.membership_lag")
     lookup_dates = [calendar[positions[day] - lag] for day in signals]
     mapping = pl.DataFrame({"date": lookup_dates, "signal_date": signals})
     return (
@@ -471,7 +471,7 @@ def _benchmark_targets(
     end: date,
     extended_calendar: list[date],
 ) -> pl.DataFrame:
-    """指数只在成分快照变化时复位权重，期间让权重随价格自然漂移。"""
+    """Reset index weights only when constituent snapshots change; otherwise let weights drift with prices."""
     dates = [day for day in backtest_calendar if day >= first_signal]
     expanded = catalog.index_members(dates, index=benchmark).rename(
         {"index_weight": "benchmark_weight"}
@@ -503,7 +503,7 @@ def _executable_signals(
     end: date,
     price: str,
 ) -> list[date]:
-    """丢弃在回测截止日之后才会成交的末尾信号。"""
+    """Discard trailing signals that would execute after the backtest end date."""
     if price == "same_close":
         return [day for day in signals if day <= end]
     positions = {day: index for index, day in enumerate(calendar)}
@@ -517,7 +517,7 @@ def _executable_signals(
 def _execution_setup(config: Config) -> tuple[ExecutionConfig, Any, Any, Any]:
     profile = str(config.rules.get("profile", "standard"))
     if profile not in {"minimal", "standard", "custom"}:
-        raise ValueError("rules.profile 只能是 minimal、standard 或 custom")
+        raise ValueError("rules.profile must be minimal, standard, or custom")
     rules = dict(config.rules)
     if profile == "minimal":
         rules.update(
@@ -546,9 +546,9 @@ def _apply_empty_signal_policy(
     signal_dates: list[date],
     policy: str,
 ) -> pl.DataFrame:
-    """明确处理整期无有效分数，避免无声地沿用旧仓位。"""
+    """Explicitly handle periods without valid scores instead of silently keeping old positions."""
     if policy not in {"error", "hold", "cash"}:
-        raise ValueError("portfolio.empty_signal 只能是 error、hold 或 cash")
+        raise ValueError("portfolio.empty_signal must be error, hold, or cash")
     compact = targets.select("date", "stock", "target_weight")
     present = set(compact["date"].unique().to_list())
     missing = sorted(set(signal_dates) - present)
@@ -557,7 +557,7 @@ def _apply_empty_signal_policy(
     shown = ", ".join(map(str, missing[:3]))
     suffix = "..." if len(missing) > 3 else ""
     if policy == "error":
-        raise ValueError(f"调仓日没有有效分数: {shown}{suffix}")
+        raise ValueError(f"No valid scores on rebalance dates: {shown}{suffix}")
     if policy == "hold":
         return compact
 
@@ -569,7 +569,7 @@ def _apply_empty_signal_policy(
     )
     found = set(placeholders["date"].to_list())
     if found != set(missing):
-        raise ValueError("empty_signal=cash 时至少需要一只可识别的成分股")
+        raise ValueError("empty_signal=cash requires at least one identifiable constituent")
     return pl.concat([compact, placeholders], how="vertical").sort(["date", "stock"])
 
 
@@ -698,7 +698,7 @@ def _write_backtest(
 def _resolved_config_json(
     config: Config, specs: tuple[FactorSpec, ...]
 ) -> str:
-    """把运行时补全的 factor source 一并写入，保证配置可复现。"""
+    """Save factor sources resolved at runtime so the configuration is reproducible."""
     value = config.effective_dict()
     value["factors"] = [asdict(spec) for spec in specs]
     return json.dumps(value, ensure_ascii=False, indent=2, default=str)

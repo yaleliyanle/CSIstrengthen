@@ -1,4 +1,4 @@
-"""调仓日生成；新增规则只需增加一个同签名函数。"""
+"""Rebalance-date generation; add rules as functions with the same signature."""
 
 from __future__ import annotations
 
@@ -28,7 +28,7 @@ def quarterly(calendar: list[date], _: dict[str, Any]) -> list[date]:
 def every_n_days(calendar: list[date], config: dict[str, Any]) -> list[date]:
     step = int(config.get("every_n_days", 5))
     if step < 1:
-        raise ValueError("schedule.every_n_days 必须大于 0")
+        raise ValueError("schedule.every_n_days must be positive")
     return calendar[::step]
 
 
@@ -47,7 +47,7 @@ def make_schedule(calendar: Iterable[date], config: dict[str, Any]) -> list[date
     chosen = sorted(set(method(days, config)))
     unknown = set(chosen) - set(days)
     if unknown:
-        raise ValueError(f"调仓插件返回了非交易日: {min(unknown)}")
+        raise ValueError(f"The schedule plugin returned a non-trading day: {min(unknown)}")
     return chosen
 
 

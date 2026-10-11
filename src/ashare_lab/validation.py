@@ -1,4 +1,4 @@
-"""两层因子筛选的固定划分与滚动验证。"""
+"""Fixed splits and rolling validation for two-stage factor selection."""
 
 from __future__ import annotations
 
@@ -47,7 +47,7 @@ class ValidationResult:
 
 
 def dataset_split(cfg: Any) -> tuple[Period, Period, Period, Period]:
-    """读取四段时间；后两段只登记，不参与本阶段计算。"""
+    """Read four time segments; register the last two without using them in this stage."""
 
     values = cfg.split if hasattr(cfg, "split") else cfg["split"]
     periods = (
@@ -62,15 +62,15 @@ def dataset_split(cfg: Any) -> tuple[Period, Period, Period, Period]:
     )
     for item in periods:
         if item.start > item.end:
-            raise ValueError(f"{item.name} 的开始日不能晚于结束日")
+            raise ValueError(f"{item.name}: the start date must not be after the end date")
     for left, right in zip(periods, periods[1:]):
         if left.end >= right.start:
-            raise ValueError(f"{left.name} 与 {right.name} 时间重叠")
+            raise ValueError(f"{left.name} and {right.name} overlap")
     return periods
 
 
 def validation_folds(cfg: Any) -> list[ValidationFold]:
-    """固定模式返回一折；滚动模式只在 train+validation 内生成折。"""
+    """Return one fixed fold, or rolling folds within train + validation only."""
 
     train, validation, _, _ = dataset_split(cfg)
     split = cfg.split if hasattr(cfg, "split") else cfg["split"]
@@ -78,7 +78,7 @@ def validation_folds(cfg: Any) -> list[ValidationFold]:
     if method == "fixed":
         return [ValidationFold("fixed_1", train, validation)]
     if method != "rolling":
-        raise ValueError("split.method 只能是 fixed 或 rolling")
+        raise ValueError("split.method must be fixed or rolling")
 
     rolling = cfg.rolling if hasattr(cfg, "rolling") else cfg["rolling"]
     train_months = int(rolling.get("train_months", 24))
@@ -86,9 +86,9 @@ def validation_folds(cfg: Any) -> list[ValidationFold]:
     step_months = int(rolling.get("step_months", 6))
     window = str(rolling.get("window", "expanding"))
     if min(train_months, validation_months, step_months) < 1:
-        raise ValueError("滚动月份必须是正整数")
+        raise ValueError("Rolling month counts must be positive integers")
     if window not in {"expanding", "sliding"}:
-        raise ValueError("rolling.window 只能是 expanding 或 sliding")
+        raise ValueError("rolling.window must be expanding or sliding")
 
     folds = []
     index = 0
@@ -108,7 +108,7 @@ def validation_folds(cfg: Any) -> list[ValidationFold]:
         )
         index += 1
     if not folds:
-        raise ValueError("当前 rolling 月份在训练+验证区间内无法生成任何折")
+        raise ValueError("The rolling month settings produce no folds within train + validation")
     return folds
 
 
@@ -119,10 +119,10 @@ def purge_period(
     horizon: int,
     execution: str,
 ) -> pl.DataFrame:
-    """只保留前瞻收益终点仍落在本区间内的信号，防止跨界泄露。"""
+    """Keep signals whose forward returns end within the segment to prevent boundary leakage."""
 
     if execution not in {"same_close", "next_open"}:
-        raise ValueError("execution 只能是 same_close 或 next_open")
+        raise ValueError("execution must be same_close or next_open")
     positions = {day: index for index, day in enumerate(calendar)}
     end_positions = [positions[day] for day in calendar if day <= period.end]
     if not end_positions:
@@ -147,7 +147,7 @@ def validate_two_stage(
     calendar: list[date],
     cfg: Any,
 ) -> ValidationResult:
-    """第一层 IC 门槛，第二层 Lasso；参数只由验证期决定。"""
+    """Apply an IC threshold, then Lasso; choose parameters using validation data only."""
 
     selection = cfg.selection if hasattr(cfg, "selection") else cfg["selection"]
     split = cfg.split if hasattr(cfg, "split") else cfg["split"]
@@ -161,7 +161,7 @@ def validate_two_stage(
     min_t = float(selection.get("min_abs_t", 2.0))
     min_direction = float(selection.get("min_direction_stability", 0.6))
     if not ic_grid or not alpha_grid:
-        raise ValueError("selection.ic_thresholds 和 alpha_grid 不能为空")
+        raise ValueError("selection.ic_thresholds and alpha_grid must not be empty")
 
     folds = validation_folds(cfg)
     candidate_rows: list[dict[str, Any]] = []
@@ -170,7 +170,7 @@ def validate_two_stage(
         train = purge_period(panel, calendar, fold.train, horizon, execution)
         valid = purge_period(panel, calendar, fold.validation, horizon, execution)
         if train.is_empty() or valid.is_empty():
-            raise ValueError(f"{fold.name} 清除跨界标签后没有足够数据")
+            raise ValueError(f"{fold.name} has insufficient data after purging labels across boundaries")
         train_stats = factor_statistics(train, factor_columns, return_column)
         valid_stats = factor_statistics(valid, factor_columns, return_column)
         train_map = _rows_by_factor(train_stats)
@@ -247,7 +247,7 @@ def validate_two_stage(
     summary = _candidate_summary(candidates, len(folds), min_direction)
     eligible = summary.filter(pl.col("eligible"))
     if eligible.is_empty():
-        raise ValueError("没有参数组合通过方向稳定性要求；请查看候选结果或降低门槛")
+        raise ValueError("No parameter combination meets direction stability requirements; inspect candidates or lower the threshold")
     best = eligible.sort(
         ["validation_rank_ic_mean", "direction_stability_mean"],
         descending=True,
@@ -255,7 +255,7 @@ def validate_two_stage(
     best_ic = float(best["ic_threshold"])
     best_alpha = float(best["alpha"])
 
-    # 参数锁定后，允许用 train+validation 重新估计；test/live 仍完全封存。
+    # After freezing parameters, refit on train + validation; keep test/live untouched.
     train_period, validation_period, _, _ = dataset_split(cfg)
     development = Period("development", train_period.start, validation_period.end)
     full = purge_period(panel, calendar, development, horizon, execution)
@@ -267,7 +267,7 @@ def validate_two_stage(
     ).get_column("factor").to_list()
     final_columns = [column for column in factor_columns if _short(column) in passed]
     if not final_columns:
-        raise ValueError("训练+验证合并后没有因子通过最终 IC 门槛")
+        raise ValueError("No factors pass the final IC threshold on combined train + validation data")
     options = dict(selection)
     options["alpha"] = best_alpha
     final_model = fit_lasso_model(full, final_columns, return_column, options)
